@@ -1,3 +1,4 @@
+import type { DeviceModule } from '../module'
 import { DeviceRole } from './DeviceRole'
 import { DeviceLifecycleState } from './DeviceLifecycleState'
 import { DeviceExecutionState } from './DeviceExecutionState'
@@ -6,14 +7,6 @@ import { DeviceMeta } from './DeviceMeta'
 import { DeviceMessage } from './DeviceMessage'
 import { allowedDeviceTransitions } from './DeviceTransitions'
 import { DeviceDomainError } from './DeviceErrors'
-
-// TODO: To new file
-export type DeviceModule = {
-  readonly id: string
-  readonly kind: string
-  readonly model: string
-  readonly version: string
-}
 
 // Core Params
 export type DeviceCoreParams = {
@@ -39,7 +32,31 @@ export class DeviceCore {
   private config: DeviceCoreConfig
   private meta: DeviceMeta
 
+  /**
+   * Список модулей устройства.
+   *
+   * DeviceCore хранит модули через базовый интерфейс DeviceModule.
+   * Он не должен знать детали конкретных реализаций:
+   * - как LoRaModule отправляет пакет;
+   * - как SensorModule генерирует значение;
+   * - как PowerModule считает заряд.
+   *
+   * Это сохраняет DeviceCore простым и расширяемым.
+   */
   private readonly modules = new Map<string, DeviceModule>()
+
+  /**
+   * Внутренний буфер устройства.
+   *
+   * Здесь могут храниться:
+   * - telemetry messages;
+   * - control messages;
+   * - log messages;
+   * - system messages.
+   *
+   * Это не radio-buffer и не LoRa-buffer.
+   * Сетевые буферы должны находиться внутри network modules.
+   */
   private readonly buffer: {
     capacity: number
     queue: DeviceMessage[]
@@ -88,6 +105,13 @@ export class DeviceCore {
     }
   }
 
+  /**
+   * Возвращает snapshot устройства.
+   *
+   * Для модулей вызывается getSnapshot(), если метод есть в интерфейсе.
+   * Это позволяет сохранить не только базовые данные модуля,
+   * но и его внутреннее состояние.
+   */
   getSnapshot() {
     return {
       ...this.getInfo(),
@@ -160,14 +184,32 @@ export class DeviceCore {
     }
   }
 
+   /**
+   * Возвращает список модулей устройства.
+   *
+   * Возвращается readonly-массив, чтобы внешний код не мог напрямую
+   * изменить внутреннее состояние DeviceCore.
+   */
   getModules(): readonly DeviceModule[] {
     return Array.from(this.modules.values())
   }
 
+  /**
+   * Возвращает модуль по id.
+   *
+   * DeviceCore не приводит модуль к конкретному типу.
+   * Если вызывающему коду нужен LoRaModule, он должен проверить тип отдельно.
+   */
   getModule(moduleId: string): DeviceModule | undefined {
     return this.modules.get(moduleId)
   }
 
+   /**
+   * Добавляет модуль в устройство.
+   *
+   * Правило:
+   * внутри одного устройства не может быть двух модулей с одинаковым id.
+   */
   addModule(module: DeviceModule): void {
     this.assertNotDecommissioned()
 
@@ -182,6 +224,13 @@ export class DeviceCore {
     this.touch()
   }
 
+   /**
+   * Удаляет модуль из устройства.
+   *
+   * На уровне DeviceCore мы только удаляем модуль из коллекции.
+   * Если модулю нужно корректно завершить работу, это должен делать
+   * отдельный service или сам модуль до удаления.
+   */
   removeModule(moduleId: string): void {
     this.assertNotDecommissioned()
 
@@ -196,6 +245,7 @@ export class DeviceCore {
     this.touch()
   }
 
+  
   getLifecycleState(): DeviceLifecycleState {
     return this.lifecycleState
   }

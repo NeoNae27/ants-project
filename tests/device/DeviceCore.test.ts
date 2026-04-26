@@ -7,6 +7,12 @@ import { DeviceExecutionState } from '../../src/engine/domain/device/DeviceExecu
 import { DeviceLifecycleState } from '../../src/engine/domain/device/DeviceLifecycleState'
 import { DeviceMessage } from '../../src/engine/domain/device/DeviceMessage'
 import { DeviceRole } from '../../src/engine/domain/device/DeviceRole'
+import {
+  DeviceModule,
+  ModuleExecutionState,
+  ModuleKind,
+  ModuleLifecycleState,
+} from '../../src/engine/domain/module'
 
 type DeviceCoreOverrides = Omit<Partial<DeviceCoreParams>, 'config'> & {
   config?: Partial<DeviceCoreParams['config']>
@@ -83,6 +89,28 @@ function message(id: string): DeviceMessage {
   }
 }
 
+function createModule(params: {
+  id: string
+  kind: ModuleKind
+  model: string
+  version: string
+}): DeviceModule {
+  return {
+    ...params,
+    getLifecycleState: () => ModuleLifecycleState.ACTIVE,
+    getExecutionState: () => ModuleExecutionState.IDLE,
+    getSnapshot: () => ({
+      id: params.id,
+      kind: params.kind,
+      model: params.model,
+      version: params.version,
+      lifecycleState: ModuleLifecycleState.ACTIVE,
+      executionState: ModuleExecutionState.IDLE,
+    }),
+    validate: () => true,
+  }
+}
+
 function assertDeviceError(
   action: () => void,
   expectedCode: string,
@@ -142,12 +170,12 @@ test('DeviceCore builds a rich snapshot without leaking mutable state', (t) => {
 
 test('DeviceCore manages modules and reports domain error codes', (t) => {
   const device = createDevice()
-  const module = {
+  const module = createModule({
     id: 'module-temp-1',
-    kind: 'sensor',
+    kind: ModuleKind.SENSOR,
     model: 'TMP-01',
     version: '1.2.0',
-  }
+  })
 
   device.addModule(module)
   const duplicateError = assertDeviceError(

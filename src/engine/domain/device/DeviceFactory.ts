@@ -1,5 +1,6 @@
 import { DeviceCore } from "./DeviceCore"
 import { DeviceRole } from "./DeviceRole"
+import { DeviceModule } from "../module"
 
 // TODO: Add params for 'config' 
 export class DeviceFactory {
@@ -10,8 +11,9 @@ export class DeviceFactory {
     name?: string
     x: number
     y: number
+    modules?: readonly DeviceModule[]
   }): DeviceCore {
-    return new DeviceCore({
+    const device = new DeviceCore({
       id: params.id,
       model: params.model,
       version: params.version,
@@ -32,5 +34,9 @@ export class DeviceFactory {
         },
       },
     })
+
+    params.modules?.forEach((module) => device.addModule(module))
+
+    return device
   }
 }

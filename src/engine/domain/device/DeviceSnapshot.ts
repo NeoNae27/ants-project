@@ -17,6 +17,16 @@ export type DeviceInfo = {
   bufferSize: number
 }
 
+/**
+ * Snapshot одного модуля.
+ *
+ * Пока структура unknown, потому что разные модули имеют разное состояние:
+ * - LoRaModule хранит radio config и buffers;
+ * - SensorModule хранит last value и config;
+ * - PowerModule хранит battery state.
+ */
+export type DeviceModuleSnapshot = unknown
+
 export type DeviceSnapshot = {
   id: string
   model: string
@@ -27,6 +37,6 @@ export type DeviceSnapshot = {
   executionState: DeviceExecutionState
   config: DeviceCoreConfig
   meta: DeviceMeta
-  modules: unknown[]
+  modules: DeviceModuleSnapshot
   buffer: DeviceMessage[]
 }
