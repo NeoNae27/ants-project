@@ -1,0 +1,14 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
+  "include": ["src/engine/**/*", "tests/**/*.ts"],
+  "exclude": ["tests/types/**/*"],
+  "compilerOptions": {
+    "composite": false,
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "rootDir": ".",
+    "outDir": "build/tests",
+    "noEmit": false,
+    "types": ["node"]
+  }
+}
