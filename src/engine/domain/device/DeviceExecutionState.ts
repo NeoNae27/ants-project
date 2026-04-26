@@ -28,5 +28,5 @@ export enum DeviceExecutionState {
   /**
    * Выполнение остановлено.
    */
-  STOPPED = 'stopped',
+  STOPPED = 'stopped'
 }

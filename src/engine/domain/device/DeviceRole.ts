@@ -20,5 +20,5 @@ export enum DeviceRole {
   /**
    * Шлюз между устройствами и внешним приложением/сервером.
    */
-  GATEWAY = 'gateway',
+  GATEWAY = 'gateway'
 }

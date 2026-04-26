@@ -8,18 +8,65 @@ import { DeviceMessage } from './DeviceMessage'
 import { allowedDeviceTransitions } from './DeviceTransitions'
 import { DeviceDomainError } from './DeviceErrors'
 
-// Core Params
+/**
+ * DeviceCoreParams — параметры создания DeviceCore.
+ *
+ * Здесь задаётся только ядро устройства.
+ * Конкретные LoRa, sensor, battery и другие capabilities подключаются
+ * через module domain после создания.
+ */
 export type DeviceCoreParams = {
+  /**
+   * Уникальный идентификатор устройства.
+   */
   id: string
+
+  /**
+   * Модель устройства.
+   */
   model: string
+
+  /**
+   * Версия устройства или виртуальной реализации.
+   */
   version: string
+
+  /**
+   * Роль устройства в сети.
+   */
   role: DeviceRole
+
+  /**
+   * Базовая конфигурация ядра устройства.
+   */
   config: DeviceCoreConfig
+
+  /**
+   * Опциональное человекочитаемое имя.
+   */
   name?: string
+
+  /**
+   * Опциональные метаданные.
+   */
   meta?: Partial<DeviceMeta>
+
+  /**
+   * Размер внутреннего буфера сообщений.
+   */
   bufferCapacity?: number
 }
 
+/**
+ * DeviceCore — центральная доменная модель устройства.
+ *
+ * Важно:
+ * DeviceCore отвечает за идентичность, состояние, конфигурацию,
+ * lifecycle, execution state, список модулей и общий message buffer.
+ *
+ * DeviceCore НЕ должен знать детали конкретных модулей:
+ * LoRa, sensor, power и другие реализации подключаются через DeviceModule.
+ */
 export class DeviceCore {
   private readonly id: string
   private readonly model: string
@@ -80,17 +127,23 @@ export class DeviceCore {
       updatedAt: params.meta?.updatedAt ?? now,
       location: params.meta?.location,
       tags: params.meta?.tags,
-      description: params.meta?.description,
+      description: params.meta?.description
     }
 
     this.buffer = {
       capacity: params.bufferCapacity ?? 100,
-      queue: [],
+      queue: []
     }
 
     this.validateOrThrow()
   }
 
+  /**
+   * Возвращает короткую информацию об устройстве.
+   *
+   * Подходит для списков, карточек и status views,
+   * где не нужен полный snapshot.
+   */
   getInfo() {
     return {
       id: this.id,
@@ -101,7 +154,7 @@ export class DeviceCore {
       lifecycleState: this.lifecycleState,
       executionState: this.executionState,
       moduleCount: this.modules.size,
-      bufferSize: this.buffer.queue.length,
+      bufferSize: this.buffer.queue.length
     }
   }
 
@@ -119,72 +172,100 @@ export class DeviceCore {
       meta: {
         ...this.meta,
         location: this.meta.location ? { ...this.meta.location } : undefined,
-        tags: this.meta.tags ? [...this.meta.tags] : undefined,
+        tags: this.meta.tags ? [...this.meta.tags] : undefined
       },
       modules: Array.from(this.modules.values()),
-      buffer: [...this.buffer.queue],
+      buffer: [...this.buffer.queue]
     }
   }
 
+  /**
+   * Возвращает роль устройства.
+   */
   getRole(): DeviceRole {
     return this.role
   }
 
+  /**
+   * Меняет роль устройства.
+   *
+   * Нельзя менять роль decommissioned устройства.
+   */
   changeRole(nextRole: DeviceRole): void {
     this.assertNotDecommissioned()
     this.role = nextRole
     this.touch()
   }
 
+  /**
+   * Возвращает человекочитаемое имя устройства.
+   */
   getName(): string | undefined {
     return this.name
   }
 
+  /**
+   * Переименовывает устройство.
+   *
+   * Пустое имя запрещено, чтобы UI и debug-логи не получали
+   * бессмысленное display name.
+   */
   rename(nextName: string): void {
     if (!nextName.trim()) {
-      throw new DeviceDomainError(
-        'Device name cannot be empty',
-        'DEVICE_NAME_EMPTY',
-      )
+      throw new DeviceDomainError('Device name cannot be empty', 'DEVICE_NAME_EMPTY')
     }
 
     this.name = nextName
     this.touch()
   }
 
+  /**
+   * Возвращает копию базовой конфигурации.
+   */
   getConfig(): DeviceCoreConfig {
     return { ...this.config }
   }
 
+  /**
+   * Обновляет базовую конфигурацию устройства.
+   *
+   * После применения patch конфигурация валидируется целиком.
+   */
   updateConfig(patch: Partial<DeviceCoreConfig>): void {
     this.assertNotDecommissioned()
 
     this.config = {
       ...this.config,
-      ...patch,
+      ...patch
     }
 
     this.touch()
     this.validateOrThrow()
   }
 
+  /**
+   * Возвращает копию метаданных устройства.
+   */
   getMeta(): DeviceMeta {
     return {
       ...this.meta,
       location: this.meta.location ? { ...this.meta.location } : undefined,
-      tags: this.meta.tags ? [...this.meta.tags] : undefined,
+      tags: this.meta.tags ? [...this.meta.tags] : undefined
     }
   }
 
+  /**
+   * Обновляет метаданные устройства и updatedAt.
+   */
   updateMeta(patch: Partial<DeviceMeta>): void {
     this.meta = {
       ...this.meta,
       ...patch,
-      updatedAt: Date.now(),
+      updatedAt: Date.now()
     }
   }
 
-   /**
+  /**
    * Возвращает список модулей устройства.
    *
    * Возвращается readonly-массив, чтобы внешний код не мог напрямую
@@ -204,7 +285,7 @@ export class DeviceCore {
     return this.modules.get(moduleId)
   }
 
-   /**
+  /**
    * Добавляет модуль в устройство.
    *
    * Правило:
@@ -216,7 +297,7 @@ export class DeviceCore {
     if (this.modules.has(module.id)) {
       throw new DeviceDomainError(
         `Module already exists: ${module.id}`,
-        'DEVICE_MODULE_ALREADY_EXISTS',
+        'DEVICE_MODULE_ALREADY_EXISTS'
       )
     }
 
@@ -224,7 +305,7 @@ export class DeviceCore {
     this.touch()
   }
 
-   /**
+  /**
    * Удаляет модуль из устройства.
    *
    * На уровне DeviceCore мы только удаляем модуль из коллекции.
@@ -235,30 +316,38 @@ export class DeviceCore {
     this.assertNotDecommissioned()
 
     if (!this.modules.has(moduleId)) {
-      throw new DeviceDomainError(
-        `Module not found: ${moduleId}`,
-        'DEVICE_MODULE_NOT_FOUND',
-      )
+      throw new DeviceDomainError(`Module not found: ${moduleId}`, 'DEVICE_MODULE_NOT_FOUND')
     }
 
     this.modules.delete(moduleId)
     this.touch()
   }
 
-  
+  /**
+   * Возвращает lifecycle state устройства.
+   */
   getLifecycleState(): DeviceLifecycleState {
     return this.lifecycleState
   }
 
+  /**
+   * Проверяет, разрешён ли переход в следующий lifecycle state.
+   */
   canTransitionTo(next: DeviceLifecycleState): boolean {
     return allowedDeviceTransitions[this.lifecycleState]?.includes(next) ?? false
   }
 
+  /**
+   * Переводит устройство в новый lifecycle state.
+   *
+   * Успешный переход записывает log-сообщение во внутренний buffer,
+   * чтобы история переходов была доступна для debug и UI.
+   */
   transitionTo(next: DeviceLifecycleState, reason?: string): void {
     if (!this.canTransitionTo(next)) {
       throw new DeviceDomainError(
         `Invalid lifecycle transition: ${this.lifecycleState} -> ${next}`,
-        'DEVICE_INVALID_TRANSITION',
+        'DEVICE_INVALID_TRANSITION'
       )
     }
 
@@ -274,20 +363,28 @@ export class DeviceCore {
         event: 'device.lifecycle_changed',
         previous,
         next,
-        reason,
-      },
+        reason
+      }
     })
   }
 
+  /**
+   * Возвращает текущее execution state устройства.
+   */
   getExecutionState(): DeviceExecutionState {
     return this.executionState
   }
 
+  /**
+   * Устанавливает execution state устройства.
+   *
+   * Decommissioned устройство больше не может выполнять действия.
+   */
   setExecutionState(next: DeviceExecutionState): void {
     if (this.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
       throw new DeviceDomainError(
         'Cannot change execution state of decommissioned device',
-        'DEVICE_ALREADY_DECOMMISSIONED',
+        'DEVICE_ALREADY_DECOMMISSIONED'
       )
     }
 
@@ -295,10 +392,18 @@ export class DeviceCore {
     this.touch()
   }
 
+  /**
+   * Возвращает сообщения из buffer без удаления.
+   */
   peekBuffer(limit?: number): readonly DeviceMessage[] {
     return limit ? this.buffer.queue.slice(0, limit) : [...this.buffer.queue]
   }
 
+  /**
+   * Удаляет и возвращает сообщения из buffer.
+   *
+   * Если limit не передан, очищает весь buffer.
+   */
   drainBuffer(limit?: number): DeviceMessage[] {
     if (!limit) {
       const all = [...this.buffer.queue]
@@ -309,6 +414,11 @@ export class DeviceCore {
     return this.buffer.queue.splice(0, limit)
   }
 
+  /**
+   * Добавляет сообщение во внутренний buffer.
+   *
+   * Если buffer заполнен, самое старое сообщение вытесняется.
+   */
   pushToBuffer(message: DeviceMessage): void {
     if (this.buffer.queue.length >= this.buffer.capacity) {
       this.buffer.queue.shift()
@@ -317,10 +427,16 @@ export class DeviceCore {
     this.buffer.queue.push(message)
   }
 
+  /**
+   * Возвращает текущее количество сообщений в buffer.
+   */
   getBufferSize(): number {
     return this.buffer.queue.length
   }
 
+  /**
+   * Проверяет корректность текущего состояния устройства.
+   */
   validate() {
     const issues: Array<{
       code: string
@@ -332,7 +448,7 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_ID_REQUIRED',
         message: 'Device id is required',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
@@ -340,7 +456,7 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_MODEL_REQUIRED',
         message: 'Device model is required',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
@@ -348,7 +464,7 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_VERSION_REQUIRED',
         message: 'Device version is required',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
@@ -356,7 +472,7 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_HEARTBEAT_INTERVAL_INVALID',
         message: 'Heartbeat interval must be greater than 0',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
@@ -364,7 +480,7 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_TRANSMISSION_INTERVAL_INVALID',
         message: 'Transmission interval must be greater than 0',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
@@ -372,13 +488,13 @@ export class DeviceCore {
       issues.push({
         code: 'DEVICE_MAX_RETRIES_INVALID',
         message: 'Max retries cannot be negative',
-        severity: 'error',
+        severity: 'error'
       })
     }
 
     return {
       valid: issues.every((issue) => issue.severity !== 'error'),
-      issues,
+      issues
     }
   }
 
@@ -388,17 +504,14 @@ export class DeviceCore {
     if (!result.valid) {
       throw new DeviceDomainError(
         result.issues.map((issue) => issue.message).join('; '),
-        'DEVICE_CONFIG_INVALID',
+        'DEVICE_CONFIG_INVALID'
       )
     }
   }
 
   private assertNotDecommissioned(): void {
     if (this.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
-      throw new DeviceDomainError(
-        'Device is decommissioned',
-        'DEVICE_ALREADY_DECOMMISSIONED',
-      )
+      throw new DeviceDomainError('Device is decommissioned', 'DEVICE_ALREADY_DECOMMISSIONED')
     }
   }
 

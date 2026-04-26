@@ -48,5 +48,5 @@ export enum DeviceLifecycleState {
   /**
    * Устройство выведено из эксплуатации.
    */
-  DECOMMISSIONED = 'decommissioned',
+  DECOMMISSIONED = 'decommissioned'
 }
