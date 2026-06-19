@@ -1,0 +1,5 @@
+export { WorkspacePlacementService } from './WorkspacePlacementService'
+export { WorkspaceSession } from './WorkspaceSession'
+export { WorkspaceSessionError } from './WorkspaceSessionErrors'
+export { WorkspaceSessionManager } from './WorkspaceSessionManager'
+export type { WorkspacePlacementServiceOptions } from './WorkspacePlacementService'

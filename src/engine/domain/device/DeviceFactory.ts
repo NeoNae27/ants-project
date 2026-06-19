@@ -9,6 +9,47 @@ import { DeviceModule } from '../module'
  * роль, базовую конфигурацию, meta timestamps и начальную location.
  */
 export class DeviceFactory {
+  static createDevice(params: {
+    id: string
+    model: string
+    version: string
+    role: DeviceRole
+    name?: string
+    x?: number
+    y?: number
+    modules?: readonly DeviceModule[]
+  }): DeviceCore {
+    const now = Date.now()
+    const device = new DeviceCore({
+      id: params.id,
+      model: params.model,
+      version: params.version,
+      role: params.role,
+      name: params.name,
+      config: {
+        heartbeatIntervalMs: 60_000,
+        transmissionIntervalMs: 300_000,
+        maxRetries: 3,
+        powerMode: 'normal'
+      },
+      meta: {
+        createdAt: now,
+        updatedAt: now,
+        location:
+          params.x !== undefined && params.y !== undefined
+            ? {
+                x: params.x,
+                y: params.y
+              }
+            : undefined
+      }
+    })
+
+    params.modules?.forEach((module) => device.addModule(module))
+
+    return device
+  }
+
   /**
    * Создаёт обычную node-ноду.
    *
@@ -51,32 +92,15 @@ export class DeviceFactory {
      */
     modules?: readonly DeviceModule[]
   }): DeviceCore {
-    const device = new DeviceCore({
+    return this.createDevice({
       id: params.id,
       model: params.model,
       version: params.version,
-      role: DeviceRole.NODE,
       name: params.name,
-      
-      // TODO: transform to params
-      config: {
-        heartbeatIntervalMs: 60_000,
-        transmissionIntervalMs: 300_000,
-        maxRetries: 3,
-        powerMode: 'normal'
-      },
-      meta: {
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-        location: {
-          x: params.x,
-          y: params.y
-        }
-      }
+      role: DeviceRole.NODE,
+      x: params.x,
+      y: params.y,
+      modules: params.modules
     })
-
-    params.modules?.forEach((module) => device.addModule(module))
-
-    return device
   }
 }

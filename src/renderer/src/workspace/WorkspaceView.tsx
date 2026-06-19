@@ -6,13 +6,14 @@ import type {
   WorkspaceConnectionViewMode,
   WorkspaceDevice,
   WorkspaceModule,
+  WorkspacePossibleConnection,
   WorkspacePoint,
-  WorkspaceProject
+  WorkspaceProject,
+  WorkspaceSpatialGridVisibility
 } from './types'
 import {
   createWorkspaceConnectionLines,
-  filterConnectionsForMode,
-  findPossibleWorkspaceConnections
+  filterConnectionsForMode
 } from './workspaceConnections'
 
 type WorkspaceViewProps = {
@@ -20,6 +21,8 @@ type WorkspaceViewProps = {
   devices: WorkspaceDevice[]
   selectedDeviceId: string | null
   selectedDevice: WorkspaceDevice | null
+  possibleConnections: WorkspacePossibleConnection[]
+  spatialGridVisibility: WorkspaceSpatialGridVisibility
   addDeviceRequest: {
     id: number
     placement: AddDevicePlacement
@@ -33,6 +36,7 @@ type WorkspaceViewProps = {
   onMoveDevice: (deviceId: string, position: WorkspacePoint) => void
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
+  onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
   onClearSelection: () => void
 }
@@ -99,6 +103,8 @@ export function WorkspaceView({
   devices,
   selectedDeviceId,
   selectedDevice,
+  possibleConnections,
+  spatialGridVisibility,
   addDeviceRequest,
   pasteDeviceRequest,
   onAddDeviceAt,
@@ -106,6 +112,7 @@ export function WorkspaceView({
   onMoveDevice,
   onAddModule,
   onUpdateModule,
+  onRemoveModule,
   onSelectDevice,
   onClearSelection
 }: WorkspaceViewProps): React.JSX.Element {
@@ -159,13 +166,13 @@ export function WorkspaceView({
 
   const scale = fitScale * viewTransform.zoom
   const zoomPercent = Math.round(viewTransform.zoom * 100)
-  const possibleConnections = useMemo(
-    () =>
-      findPossibleWorkspaceConnections({
-        project,
-        devices
-      }),
-    [devices, project]
+  const spatialGridCellSize = useMemo(
+    () => Math.max(1, Math.min(project.width, project.height, 100)),
+    [project.height, project.width]
+  )
+  const loraSpatialGridPatternId = useMemo(
+    () => `lora-spatial-grid-${project.id.replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+    [project.id]
   )
   const visibleConnections = useMemo(
     () =>
@@ -509,6 +516,35 @@ export function WorkspaceView({
                 </div>
               ) : null}
 
+              {spatialGridVisibility.lora ? (
+                <svg
+                  className="workspace-spatial-grid-overlay workspace-spatial-grid-overlay-lora"
+                  width={project.width}
+                  height={project.height}
+                  viewBox={`0 0 ${project.width} ${project.height}`}
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <pattern
+                      id={loraSpatialGridPatternId}
+                      width={spatialGridCellSize}
+                      height={spatialGridCellSize}
+                      patternUnits="userSpaceOnUse"
+                    >
+                      <path
+                        className="workspace-spatial-grid-line"
+                        d={`M ${spatialGridCellSize} 0 L 0 0 0 ${spatialGridCellSize}`}
+                      />
+                    </pattern>
+                  </defs>
+                  <rect
+                    width={project.width}
+                    height={project.height}
+                    fill={`url(#${loraSpatialGridPatternId})`}
+                  />
+                </svg>
+              ) : null}
+
               {connectionLines.length > 0 ? (
                 <svg
                   className="workspace-connection-overlay"
@@ -572,6 +608,7 @@ export function WorkspaceView({
           device={selectedDevice}
           onAddModule={onAddModule}
           onUpdateModule={onUpdateModule}
+          onRemoveModule={onRemoveModule}
         />
       </div>
 
@@ -582,6 +619,9 @@ export function WorkspaceView({
         </span>
         <span className="status-item">Unit: 1 = {project.unitScaleMeters} m</span>
         <span className="status-item">Zoom: {zoomPercent}%</span>
+        <span className="status-item">
+          Spatial grid: {spatialGridVisibility.lora ? 'LoRa' : 'Off'}
+        </span>
         <span className="status-item">Links: {visibleConnections.length}</span>
         <span className="status-item">
           Selected: {selectedDevice ? `${selectedDevice.name} (${selectedDevice.x}, ${selectedDevice.y})` : 'None'}

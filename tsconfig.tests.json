@@ -1,6 +1,6 @@
 {
   "extends": "@electron-toolkit/tsconfig/tsconfig.node.json",
-  "include": ["src/engine/**/*", "tests/**/*.ts"],
+  "include": ["src/engine/**/*", "src/shared/**/*", "tests/**/*.ts"],
   "exclude": ["tests/types/**/*"],
   "compilerOptions": {
     "composite": false,

@@ -44,11 +44,13 @@ const moduleCatalog: ModuleCategory[] = [
           { label: 'Tx power', value: '14 dBm' },
           { label: 'SF', value: '12' },
           { label: 'Range', value: '10,000 m' },
+          { label: 'Max links', value: '8' },
           { label: 'Payload', value: '64 B' }
         ],
         communication: {
           protocol: 'lora',
           maxRangeMeters: 10_000,
+          maxConnections: 8,
           spreadingFactor: 12,
           bandwidthHz: 125_000,
           txPowerDbm: 14,

@@ -70,6 +70,25 @@ body,
   box-shadow: 0 0 0 1px #ffffff;
 }
 
+.workspace-spatial-grid-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.workspace-spatial-grid-overlay-lora {
+  opacity: 0.72;
+}
+
+.workspace-spatial-grid-line {
+  fill: none;
+  stroke: rgba(37, 99, 235, 0.34);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
 .workspace-status {
   display: flex;
   align-items: center;
@@ -502,6 +521,42 @@ body,
   color: #1e293b;
   font-size: 12px;
   font-weight: 600;
+}
+
+.module-item-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.module-item-header strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-remove-button {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.module-remove-button:hover {
+  border-color: #fecaca;
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .module-item span,

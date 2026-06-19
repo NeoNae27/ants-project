@@ -107,6 +107,12 @@ export type LoRaRadioConfig = {
    * Это будет делать WirelessMedium.
    */
   maxRangeMeters: number
+
+  /**
+   * Максимальное количество возможных исходящих подключений,
+   * которые учитываются при построении runtime-derived link candidates.
+   */
+  maxConnections: number
 }
 
 /**
@@ -139,6 +145,11 @@ export type LoRaMeshOptions = {
 export type LoRaModuleConfig = {
   radio: LoRaRadioConfig
   mesh?: LoRaMeshOptions
+}
+
+export type LoRaModuleConfigPatch = {
+  radio?: Partial<LoRaRadioConfig>
+  mesh?: Partial<LoRaMeshOptions>
 }
 
 /**

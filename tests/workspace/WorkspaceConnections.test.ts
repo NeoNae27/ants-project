@@ -29,6 +29,7 @@ function createLoRaModule(id: string, maxRangeMeters = 1000): WorkspaceModule {
     communication: {
       protocol: 'lora',
       maxRangeMeters,
+      maxConnections: 8,
       spreadingFactor: 12,
       bandwidthHz: 125_000,
       txPowerDbm: 14,

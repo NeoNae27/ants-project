@@ -6,6 +6,7 @@ type DeviceInspectorProps = {
   device: WorkspaceDevice | null
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
+  onRemoveModule: (deviceId: string, moduleId: string) => void
 }
 
 type InspectorSectionId = 'general' | 'config' | 'modules' | 'statistics'
@@ -34,7 +35,8 @@ const bandwidthOptions = [125_000, 250_000, 500_000]
 export function DeviceInspector({
   device,
   onAddModule,
-  onUpdateModule
+  onUpdateModule,
+  onRemoveModule
 }: DeviceInspectorProps): React.JSX.Element {
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState<Record<InspectorSectionId, boolean>>({
@@ -86,6 +88,14 @@ export function DeviceInspector({
       ...module.communication,
       ...patch
     })
+  }
+
+  function removeModule(moduleId: string): void {
+    if (!device) {
+      return
+    }
+
+    onRemoveModule(device.id, moduleId)
   }
 
   return (
@@ -164,7 +174,18 @@ export function DeviceInspector({
               <div className="module-list">
                 {device.modules.map((module) => (
                   <div className="module-item" key={module.id}>
-                    <strong>{module.name}</strong>
+                    <div className="module-item-header">
+                      <strong>{module.name}</strong>
+                      <button
+                        className="module-remove-button"
+                        type="button"
+                        title="Remove module"
+                        aria-label={`Remove ${module.name}`}
+                        onClick={() => removeModule(module.id)}
+                      >
+                        x
+                      </button>
+                    </div>
                     <span>
                       {module.kind} · {module.model}
                     </span>
@@ -258,6 +279,22 @@ export function DeviceInspector({
                               onChange={(event) =>
                                 patchModuleCommunication(module, {
                                   maxRangeMeters: Math.max(1, Number(event.target.value) || 1)
+                                })
+                              }
+                            />
+                          </label>
+
+                          <label className="module-setting-field module-setting-field-wide">
+                            <span>Max links</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              step="1"
+                              value={module.communication.maxConnections}
+                              onChange={(event) =>
+                                patchModuleCommunication(module, {
+                                  maxConnections: Math.max(0, Math.floor(Number(event.target.value) || 0))
                                 })
                               }
                             />
