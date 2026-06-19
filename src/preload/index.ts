@@ -1,10 +1,48 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
-// Custom APIs for renderer
-const api = {}
+type MenuCommandCallback = () => void
+type AddDeviceCommand = {
+  placement: 'center' | 'cursor'
+}
+type AddDeviceCommandCallback = (command: AddDeviceCommand) => void
+type PasteDeviceCommand = {
+  placement: 'center' | 'cursor'
+}
+type PasteDeviceCommandCallback = (command: PasteDeviceCommand) => void
 
-console.log("Preload Loaded")
+const api = {
+  menu: {
+    onNewProject(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:new-project', callback)
+      return () => ipcRenderer.removeListener('menu:new-project', callback)
+    },
+    onAddDevice(callback: AddDeviceCommandCallback) {
+      const listener = (_event: IpcRendererEvent, command?: AddDeviceCommand) => {
+        callback(command ?? { placement: 'center' })
+      }
+
+      ipcRenderer.on('menu:add-device', listener)
+      return () => ipcRenderer.removeListener('menu:add-device', listener)
+    },
+    onCopySelectedDevice(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:copy-selected-device', callback)
+      return () => ipcRenderer.removeListener('menu:copy-selected-device', callback)
+    },
+    onPasteDevice(callback: PasteDeviceCommandCallback) {
+      const listener = (_event: IpcRendererEvent, command?: PasteDeviceCommand) => {
+        callback(command ?? { placement: 'center' })
+      }
+
+      ipcRenderer.on('menu:paste-device', listener)
+      return () => ipcRenderer.removeListener('menu:paste-device', listener)
+    },
+    onDeleteSelectedDevice(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:delete-selected-device', callback)
+      return () => ipcRenderer.removeListener('menu:delete-selected-device', callback)
+    }
+  }
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

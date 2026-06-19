@@ -64,11 +64,11 @@ export type DeviceCoreParams = {
  * DeviceCore отвечает за идентичность, состояние, конфигурацию,
  * lifecycle, execution state, список модулей и общий message buffer.
  *
- * DeviceCore НЕ должен знать детали конкретных модулей:
+ * DeviceCore НЕ знает детали конкретных модулей:
  * LoRa, sensor, power и другие реализации подключаются через DeviceModule.
  */
 export class DeviceCore {
-  private readonly id: string
+  private readonly id: string //QUE: Change to the symbol type?
   private readonly model: string
   private readonly version: string
 
@@ -93,7 +93,7 @@ export class DeviceCore {
   private readonly modules = new Map<string, DeviceModule>()
 
   /**
-   * Внутренний буфер устройства.
+   * Внутренний буфер (память) устройства.
    *
    * Здесь могут храниться:
    * - telemetry messages;
@@ -104,11 +104,14 @@ export class DeviceCore {
    * Это не radio-buffer и не LoRa-buffer.
    * Сетевые буферы должны находиться внутри network modules.
    */
+
+  // TODO: Move to a new file DeviceBuffer
   private readonly buffer: {
     capacity: number
     queue: DeviceMessage[]
   }
 
+  // Device Constructor
   constructor(params: DeviceCoreParams) {
     const now = Date.now()
 
@@ -116,7 +119,7 @@ export class DeviceCore {
     this.model = params.model
     this.version = params.version
     this.name = params.name
-    this.role = params.role
+    this.role = params.role // TODO: Create a default role. Example: None or set NODE as default role 
 
     this.lifecycleState = DeviceLifecycleState.NEW
     this.executionState = DeviceExecutionState.IDLE
@@ -145,6 +148,7 @@ export class DeviceCore {
    * где не нужен полный snapshot.
    */
   getInfo() {
+    // TODO: Create DeviceInfo DTO
     return {
       id: this.id,
       model: this.model,
@@ -434,6 +438,7 @@ export class DeviceCore {
     return this.buffer.queue.length
   }
 
+  // -- DEVICE VALIDATE -- //
   /**
    * Проверяет корректность текущего состояния устройства.
    */
@@ -498,6 +503,7 @@ export class DeviceCore {
     }
   }
 
+  // Validate function
   private validateOrThrow(): void {
     const result = this.validate()
 
