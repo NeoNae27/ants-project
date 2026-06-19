@@ -3,6 +3,7 @@ import type {
   WorkspaceModuleKind,
   WorkspacePosition,
   WorkspaceSnapshot,
+  WorkspaceValidationOptions,
   WorkspaceValidationResult,
 } from '../engine/domain/workspace/WorkspaceTypes'
 
@@ -87,6 +88,7 @@ export type PasteDeviceCommand = {
 
 export type ValidateProjectCommand = {
   type: 'workspace/validate-project'
+  mode?: WorkspaceValidationOptions['mode']
 }
 
 export type GetSnapshotCommand = {

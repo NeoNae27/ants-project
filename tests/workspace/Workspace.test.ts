@@ -20,10 +20,10 @@ function createWorkspace(config?: Partial<WorkspaceConfig>): Workspace {
   })
 }
 
-function createLoRaLikeModule(id: string): StubModule {
+function createLoRaLikeModule(id: string, maxRangeMeters = 1000): StubModule {
   return new StubModule(id, ModuleKind.NETWORK, 'LoRa network', 'SX1276 Stub', '1.0.0', {
     radio: {
-      maxRangeMeters: 1000,
+      maxRangeMeters,
     },
   })
 }
@@ -359,6 +359,62 @@ describe('Workspace', () => {
     assert.equal(workspace.getDeviceByAddress('lora-node-1'), undefined)
     assert.deepEqual(workspace.getRegistryQueries().getEndpointsByModule('node-1-lora'), [])
     assert.deepEqual(workspace.getRegistryQueries().getEndpointsByDevice('node-1'), [])
+  })
+
+  it('reports registry, module and endpoint inconsistencies during validation', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
+
+    workspace.addDevice(node, { x: 10, y: 10 }, {
+      endpoints: [{ deviceId: 'node-1', moduleId: 'node-1-lora', protocol: 'lora', address: 'lora-node-1' }],
+    })
+    node.removeModule('node-1-lora')
+
+    const result = workspace.validate()
+    const codes = result.issues.map((issue) => issue.code)
+
+    assert.equal(result.valid, false)
+    assert.ok(codes.includes('WORKSPACE_REGISTERED_MODULE_MISSING_FROM_DEVICE'))
+  })
+
+  it('validates network gateway presence and warns about isolated nodes', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
+
+    workspace.addDevice(node, { x: 10, y: 10 })
+
+    const result = workspace.validate({ mode: 'network' })
+
+    assert.equal(result.valid, false)
+    assert.ok(result.issues.some((issue) => issue.code === 'WORKSPACE_GATEWAY_REQUIRED'))
+  })
+
+  it('warns when a node has no possible path to a gateway', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora', 100)])
+    const gateway = createDevice('gateway-1', DeviceRole.GATEWAY, [createLoRaLikeModule('gateway-1-lora', 100)])
+
+    workspace.addDevice(node, { x: 0, y: 0 })
+    workspace.addDevice(gateway, { x: 100, y: 100 })
+
+    const result = workspace.validate({ mode: 'network' })
+
+    assert.equal(result.valid, true)
+    assert.ok(result.issues.some((issue) => issue.code === 'WORKSPACE_NODE_ISOLATED_FROM_GATEWAY'))
+  })
+
+  it('does not warn when a node has a possible directed path to a gateway', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora', 1000)])
+    const gateway = createDevice('gateway-1', DeviceRole.GATEWAY, [createLoRaLikeModule('gateway-1-lora', 1000)])
+
+    workspace.addDevice(node, { x: 10, y: 10 })
+    workspace.addDevice(gateway, { x: 20, y: 20 })
+
+    const result = workspace.validate({ mode: 'network' })
+
+    assert.equal(result.valid, true)
+    assert.equal(result.issues.some((issue) => issue.code === 'WORKSPACE_NODE_ISOLATED_FROM_GATEWAY'), false)
   })
 
   it('updates LoRa module config through workspace domain API', () => {

@@ -114,6 +114,11 @@ export type WorkspaceValidationIssue = {
   code: string
   message: string
   severity: 'error' | 'warning' | 'info'
+  details?: Record<string, unknown>
+}
+
+export type WorkspaceValidationOptions = {
+  mode?: 'project' | 'network'
 }
 
 export type WorkspaceValidationResult = {

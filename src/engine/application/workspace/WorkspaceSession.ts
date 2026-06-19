@@ -178,7 +178,7 @@ export class WorkspaceSession {
             this.createEvent('workspace.device.pasted'),
           ])
         case 'workspace/validate-project': {
-          const validation = this.validateProject()
+          const validation = this.validateProject({ mode: command.mode })
           return {
             ok: validation.valid,
             snapshot: this.getSnapshot(),
@@ -346,8 +346,8 @@ export class WorkspaceSession {
     })
   }
 
-  validateProject(): WorkspaceValidationResult {
-    return this.getWorkspaceOrThrow().validate()
+  validateProject(options?: { mode?: 'project' | 'network' }): WorkspaceValidationResult {
+    return this.getWorkspaceOrThrow().validate(options)
   }
 
   getSnapshot(): WorkspaceSnapshot {
