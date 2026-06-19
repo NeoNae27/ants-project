@@ -48,6 +48,24 @@ describe('WorkspaceSession', () => {
     assert.equal(snapshot.snapshot?.id, created.snapshot?.id)
   })
 
+  it('returns spatial index debug data through unified result format', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+    const added = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 100, y: 100 },
+    })
+
+    assertOk(added)
+
+    const debug = session.dispatch({ type: 'workspace/get-spatial-index-debug' })
+
+    assertOk(debug)
+    assert.ok(debug.snapshot)
+    assert.equal(debug.debug?.spatialIndex?.stats.deviceCount, 1)
+    assert.equal(debug.debug?.spatialIndex?.entries[0].consistent, true)
+  })
+
   it('adds, moves and deletes devices through Workspace', () => {
     const session = new WorkspaceSession()
     createProject(session)

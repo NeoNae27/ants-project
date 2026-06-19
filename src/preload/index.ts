@@ -75,6 +75,10 @@ const api = {
     onShowDevicesRegister(callback: MenuCommandCallback) {
       ipcRenderer.on('menu:show-devices-register', callback)
       return () => ipcRenderer.removeListener('menu:show-devices-register', callback)
+    },
+    onShowSpatialIndex(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:show-spatial-index', callback)
+      return () => ipcRenderer.removeListener('menu:show-spatial-index', callback)
     }
   }
 }

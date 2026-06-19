@@ -34,6 +34,7 @@ export type WorkspaceApi = {
     onSetSpatialGridVisibility: (callback: SpatialGridVisibilityCommandCallback) => MenuCommandCleanup
     onSetDebugging: (callback: DebuggingCommandCallback) => MenuCommandCleanup
     onShowDevicesRegister: (callback: MenuCommandCallback) => MenuCommandCleanup
+    onShowSpatialIndex: (callback: MenuCommandCallback) => MenuCommandCleanup
   }
 }
 

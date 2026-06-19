@@ -3,6 +3,7 @@ import type { DeviceLifecycleState } from '../device/DeviceLifecycleState'
 import type { DeviceRole } from '../device/DeviceRole'
 import type { DeviceCoreConfig } from '../device/DeviceConfig'
 import type { DeviceAddress, DeviceId, LoRaAddress, ModuleId, NetworkEndpoint } from '../registry'
+import type { SpatialIndexStats } from '../spatial'
 
 export type WorkspaceId = string
 export type WorkspaceDeviceId = string
@@ -108,6 +109,32 @@ export type WorkspaceSnapshot = {
   metersPerUnit: number
   devices: WorkspaceDeviceSnapshot[]
   possibleConnections: WorkspacePossibleConnection[]
+}
+
+export type WorkspaceSpatialIndexEntrySnapshot = {
+  deviceId: WorkspaceDeviceId
+  name?: string
+  role: DeviceRole
+  placementPosition?: WorkspacePosition
+  spatialPosition?: WorkspacePosition
+  cell?: {
+    x: number
+    y: number
+    key: string
+  }
+  consistent: boolean
+}
+
+export type WorkspaceSpatialIndexSnapshot = {
+  workspace: {
+    id: WorkspaceId
+    name: string
+    width: number
+    height: number
+    metersPerUnit: number
+  }
+  stats: SpatialIndexStats
+  entries: WorkspaceSpatialIndexEntrySnapshot[]
 }
 
 export type WorkspaceValidationIssue = {

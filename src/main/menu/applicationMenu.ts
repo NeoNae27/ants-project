@@ -25,7 +25,8 @@ const menuChannels = {
   deleteSelectedDevice: 'menu:delete-selected-device',
   setSpatialGridVisibility: 'menu:set-spatial-grid-visibility',
   setDebugging: 'menu:set-debugging',
-  showDevicesRegister: 'menu:show-devices-register'
+  showDevicesRegister: 'menu:show-devices-register',
+  showSpatialIndex: 'menu:show-spatial-index'
 } as const
 
 function sendMenuCommand(window: BrowserWindow, channel: string, payload?: unknown): void {
@@ -135,6 +136,11 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
           label: 'Show devices register',
           accelerator: 'CmdOrCtrl+Shift+R',
           click: () => sendMenuCommand(mainWindow, menuChannels.showDevicesRegister)
+        },
+        {
+          label: 'Show spatial index',
+          accelerator: 'CmdOrCtrl+Shift+I',
+          click: () => sendMenuCommand(mainWindow, menuChannels.showSpatialIndex)
         }
       ]
     }

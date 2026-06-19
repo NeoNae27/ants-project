@@ -22,6 +22,9 @@ export type {
   WorkspacePosition,
   WorkspacePossibleConnection,
   WorkspaceSnapshot,
+  WorkspaceSpatialIndexEntrySnapshot,
+  WorkspaceSpatialIndexSnapshot,
   WorkspaceValidationIssue,
+  WorkspaceValidationOptions,
   WorkspaceValidationResult,
 } from './WorkspaceTypes'

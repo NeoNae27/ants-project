@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { WorkspaceSnapshot } from '../../engine/domain/workspace'
+import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
 import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
@@ -100,6 +100,40 @@ function createDevicesRegisterView(devices: WorkspaceDevice[]): Array<Record<str
       device.modules.find((module) => module.communication?.protocol === 'lora')?.communication
         ?.sourceLabel ?? 'none'
   }))
+}
+
+function createSpatialIndexEntriesView(
+  spatialIndex: WorkspaceSpatialIndexSnapshot
+): Array<Record<string, string | number | boolean>> {
+  return spatialIndex.entries.map((entry) => ({
+    deviceId: entry.deviceId,
+    name: entry.name ?? '',
+    role: entry.role,
+    placementX: entry.placementPosition?.x ?? '',
+    placementY: entry.placementPosition?.y ?? '',
+    spatialX: entry.spatialPosition?.x ?? '',
+    spatialY: entry.spatialPosition?.y ?? '',
+    cell: entry.cell?.key ?? 'missing',
+    consistent: entry.consistent
+  }))
+}
+
+function createSpatialIndexCellsView(
+  spatialIndex: WorkspaceSpatialIndexSnapshot
+): Array<Record<string, string | number>> {
+  const cells = spatialIndex.entries.reduce<Record<string, string[]>>((index, entry) => {
+    const key = entry.cell?.key ?? 'missing'
+    index[key] = [...(index[key] ?? []), entry.deviceId]
+    return index
+  }, {})
+
+  return Object.entries(cells)
+    .map(([cell, deviceIds]) => ({
+      cell,
+      count: deviceIds.length,
+      devices: deviceIds.join(', ')
+    }))
+    .sort((left, right) => left.cell.localeCompare(right.cell))
 }
 
 function App(): React.JSX.Element {
@@ -345,6 +379,26 @@ function App(): React.JSX.Element {
     console.groupEnd()
   }, [devices, project, snapshot])
 
+  const showSpatialIndex = useCallback(() => {
+    void dispatchWorkspaceCommand({
+      type: 'workspace/get-spatial-index-debug'
+    }).then((result) => {
+      const spatialIndex = result.debug?.spatialIndex
+
+      if (!result.ok || !spatialIndex) {
+        console.error('[Debug] Spatial index unavailable', result.error)
+        return
+      }
+
+      console.groupCollapsed('[Debug] Spatial index')
+      console.info('Workspace:', spatialIndex.workspace)
+      console.info('Stats:', spatialIndex.stats)
+      console.table(createSpatialIndexEntriesView(spatialIndex))
+      console.table(createSpatialIndexCellsView(spatialIndex))
+      console.groupEnd()
+    })
+  }, [dispatchWorkspaceCommand])
+
   useEffect(() => {
     let isMounted = true
 
@@ -388,6 +442,7 @@ function App(): React.JSX.Element {
       console.info(`[Debug] Debugging ${command.enabled ? 'enabled' : 'disabled'}`)
     })
     const cleanupShowDevicesRegister = window.api.menu.onShowDevicesRegister(showDevicesRegister)
+    const cleanupShowSpatialIndex = window.api.menu.onShowSpatialIndex(showSpatialIndex)
 
     return () => {
       cleanupNewProject()
@@ -398,13 +453,15 @@ function App(): React.JSX.Element {
       cleanupSetSpatialGridVisibility()
       cleanupSetDebugging()
       cleanupShowDevicesRegister()
+      cleanupShowSpatialIndex()
     }
   }, [
     copySelectedDevice,
     requestAddDevice,
     requestPasteDevice,
     deleteSelectedDevice,
-    showDevicesRegister
+    showDevicesRegister,
+    showSpatialIndex
   ])
 
   useEffect(() => {

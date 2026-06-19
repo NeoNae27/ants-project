@@ -266,6 +266,33 @@ describe('Workspace', () => {
     ])
   })
 
+  it('creates serializable spatial index debug snapshots', () => {
+    const workspace = createWorkspace({ cellSize: 10 })
+    const source = createDevice('node-1')
+    const target = createDevice('node-2')
+
+    workspace.addDevice(source, { x: 10, y: 10 })
+    workspace.addDevice(target, { x: 21, y: 9 })
+
+    const snapshot = workspace.getSpatialIndexSnapshot()
+    const encoded = JSON.stringify(snapshot)
+    const decoded = JSON.parse(encoded)
+
+    assert.equal(decoded.stats.deviceCount, 2)
+    assert.equal(decoded.stats.cellSize, 10)
+    assert.deepEqual(
+      decoded.entries.map((entry: { deviceId: string; cell: { key: string }; consistent: boolean }) => ({
+        deviceId: entry.deviceId,
+        cell: entry.cell.key,
+        consistent: entry.consistent,
+      })),
+      [
+        { deviceId: 'node-1', cell: '1:1', consistent: true },
+        { deviceId: 'node-2', cell: '2:0', consistent: true },
+      ],
+    )
+  })
+
   it('keeps old placement when spatial update fails', () => {
     const workspace = new Workspace(
       {

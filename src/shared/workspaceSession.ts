@@ -3,6 +3,7 @@ import type {
   WorkspaceModuleKind,
   WorkspacePosition,
   WorkspaceSnapshot,
+  WorkspaceSpatialIndexSnapshot,
   WorkspaceValidationOptions,
   WorkspaceValidationResult,
 } from '../engine/domain/workspace/WorkspaceTypes'
@@ -95,6 +96,10 @@ export type GetSnapshotCommand = {
   type: 'workspace/get-snapshot'
 }
 
+export type GetSpatialIndexDebugCommand = {
+  type: 'workspace/get-spatial-index-debug'
+}
+
 export type WorkspaceCommand =
   | CreateProjectCommand
   | AddDeviceCommand
@@ -108,6 +113,7 @@ export type WorkspaceCommand =
   | PasteDeviceCommand
   | ValidateProjectCommand
   | GetSnapshotCommand
+  | GetSpatialIndexDebugCommand
 
 export type WorkspaceSessionEvent = {
   id: string
@@ -120,6 +126,9 @@ export type WorkspaceCommandResult = {
   ok: boolean
   snapshot?: WorkspaceSnapshot
   validation?: WorkspaceValidationResult
+  debug?: {
+    spatialIndex?: WorkspaceSpatialIndexSnapshot
+  }
   events: WorkspaceSessionEvent[]
   error?: {
     code: string

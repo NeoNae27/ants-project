@@ -10,6 +10,7 @@ import type {
   WorkspaceModuleSnapshot,
   WorkspacePossibleConnection,
   WorkspaceSnapshot,
+  WorkspaceSpatialIndexSnapshot,
   WorkspaceValidationResult,
 } from '../../domain/workspace'
 import type {
@@ -188,6 +189,15 @@ export class WorkspaceSession {
         }
         case 'workspace/get-snapshot':
           return this.withSnapshot(this.getSnapshot(), events)
+        case 'workspace/get-spatial-index-debug':
+          return {
+            ok: true,
+            snapshot: this.getSnapshot(),
+            debug: {
+              spatialIndex: this.getSpatialIndexSnapshot(),
+            },
+            events,
+          }
         default:
           throw new WorkspaceSessionError(
             'WORKSPACE_SESSION_COMMAND_UNKNOWN',
@@ -368,6 +378,10 @@ export class WorkspaceSession {
       })),
       possibleConnections: this.findPossibleConnections(snapshot),
     }
+  }
+
+  getSpatialIndexSnapshot(): WorkspaceSpatialIndexSnapshot {
+    return this.getWorkspaceOrThrow().getSpatialIndexSnapshot()
   }
 
   private createLoRaConfigPatch(patch: WorkspaceModulePatchDto): LoRaModuleConfigPatch {

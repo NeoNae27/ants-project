@@ -17,6 +17,7 @@ import type {
   WorkspaceDeviceSnapshot,
   WorkspacePossibleConnection,
   WorkspaceSnapshot,
+  WorkspaceSpatialIndexSnapshot,
   WorkspaceValidationIssue,
   WorkspaceValidationOptions,
   WorkspaceValidationResult,
@@ -313,6 +314,39 @@ export class Workspace {
     })
 
     return createWorkspaceSnapshot(this.config, devices)
+  }
+
+  getSpatialIndexSnapshot(): WorkspaceSpatialIndexSnapshot {
+    const stats = this.spatialIndex.getStats()
+
+    return {
+      workspace: { ...this.config },
+      stats: { ...stats },
+      entries: this.registry.list().map((device) => {
+        const info = device.getInfo()
+        const placementPosition = this.placementIndex.get(info.id)
+        const spatialPosition = this.spatialIndex.getPosition(info.id)
+        const cell = spatialPosition
+          ? {
+              x: Math.floor(spatialPosition.x / stats.cellSize),
+              y: Math.floor(spatialPosition.y / stats.cellSize),
+              key: `${Math.floor(spatialPosition.x / stats.cellSize)}:${Math.floor(spatialPosition.y / stats.cellSize)}`,
+            }
+          : undefined
+
+        return {
+          deviceId: info.id,
+          name: info.name,
+          role: info.role,
+          placementPosition: placementPosition ? { ...placementPosition } : undefined,
+          spatialPosition: spatialPosition ? { ...spatialPosition } : undefined,
+          cell,
+          consistent:
+            Boolean(placementPosition && spatialPosition) &&
+            this.arePositionsEqual(placementPosition as WorkspacePosition, spatialPosition as WorkspacePosition),
+        }
+      }),
+    }
   }
 
   validate(options?: WorkspaceValidationOptions): WorkspaceValidationResult {
