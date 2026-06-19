@@ -9,6 +9,8 @@ import { ModuleExecutionState } from './ModuleExecutionState'
  * Он не должен знать, какой конкретно модуль подключён:
  * LoRa, BME280, Battery или другой.
  */
+
+// QUE: Remove this interface?
 export interface DeviceModule {
   readonly id: string
   readonly kind: ModuleKind
