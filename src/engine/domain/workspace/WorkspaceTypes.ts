@@ -3,7 +3,7 @@ import type { DeviceLifecycleState } from '../device/DeviceLifecycleState'
 import type { DeviceRole } from '../device/DeviceRole'
 import type { DeviceCore } from '../device/DeviceCore'
 import type { DeviceCoreConfig } from '../device/DeviceConfig'
-import type { DeviceAddress, DeviceId, LoRaAddress } from '../registry'
+import type { DeviceAddress, DeviceId, LoRaAddress, ModuleId, NetworkEndpoint } from '../registry'
 
 export type WorkspaceId = string
 export type WorkspaceDeviceId = string
@@ -49,7 +49,7 @@ export type WorkspaceModuleSnapshot = {
 }
 
 export type WorkspaceAddDeviceOptions = {
-  address?: DeviceAddress
+  endpoints?: NetworkEndpoint[]
 }
 
 export type DeviceRegistryQueryPort = {
@@ -58,7 +58,9 @@ export type DeviceRegistryQueryPort = {
   has(deviceId: DeviceId): boolean
   list(): readonly DeviceCore[]
   listByRole(role: DeviceRole): readonly DeviceCore[]
-  getLoRaAddress(deviceId: DeviceId): LoRaAddress | undefined
+  getLoRaAddress(deviceId: DeviceId, moduleId?: ModuleId): LoRaAddress | undefined
+  getEndpointsByDevice(deviceId: DeviceId): readonly NetworkEndpoint[]
+  getEndpointsByModule(moduleId: ModuleId): readonly NetworkEndpoint[]
   size(): number
 }
 
@@ -86,6 +88,7 @@ export type WorkspaceDeviceSnapshot = {
   config: DeviceCoreConfig
   position: WorkspacePosition
   address?: DeviceAddress
+  networkEndpoints: NetworkEndpoint[]
   modules: WorkspaceModuleSnapshot[]
 }
 

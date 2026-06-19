@@ -6,5 +6,9 @@ export type {
   DeviceId,
   DeviceRegistryAddOptions,
   LoRaAddress,
+  ModuleId,
+  NetworkEndpoint,
+  NetworkProtocol,
+  RegisteredModule,
   RegisteredDevice,
 } from './DeviceRegistryTypes'

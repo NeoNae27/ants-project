@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { DeviceCore } from '../../src/engine/domain/device/DeviceCore'
 import { DeviceRole } from '../../src/engine/domain/device/DeviceRole'
+import { ModuleKind } from '../../src/engine/domain/module'
+import { StubModule } from '../../src/engine/domain/modules'
 import type { SpatialIndex, SpatialIndexStats, SpatialSearchResult } from '../../src/engine/domain/spatial'
 import { Workspace, WorkspaceError } from '../../src/engine/domain/workspace'
 import type { WorkspaceConfig, WorkspacePosition } from '../../src/engine/domain/workspace'
@@ -18,8 +20,16 @@ function createWorkspace(config?: Partial<WorkspaceConfig>): Workspace {
   })
 }
 
-function createDevice(id: string, role = DeviceRole.NODE): DeviceCore {
-  return new DeviceCore({
+function createLoRaLikeModule(id: string): StubModule {
+  return new StubModule(id, ModuleKind.NETWORK, 'LoRa network', 'SX1276 Stub', '1.0.0', {
+    radio: {
+      maxRangeMeters: 1000,
+    },
+  })
+}
+
+function createDevice(id: string, role = DeviceRole.NODE, modules: StubModule[] = []): DeviceCore {
+  const device = new DeviceCore({
     id,
     model: 'ANT-TEST',
     version: '1.0.0',
@@ -32,6 +42,10 @@ function createDevice(id: string, role = DeviceRole.NODE): DeviceCore {
       powerMode: 'normal',
     },
   })
+
+  modules.forEach((module) => device.addModule(module))
+
+  return device
 }
 
 function assertWorkspaceError(error: unknown, code: string): void {
@@ -112,10 +126,12 @@ describe('Workspace', () => {
 
   it('adds devices to registry, placement and spatial lookup', () => {
     const workspace = createWorkspace()
-    const source = createDevice('node-1')
+    const source = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
     const target = createDevice('node-2')
 
-    workspace.addDevice(source, { x: 10, y: 10 }, { address: 'lora-node-1' })
+    workspace.addDevice(source, { x: 10, y: 10 }, {
+      endpoints: [{ deviceId: 'node-1', moduleId: 'node-1-lora', protocol: 'lora', address: 'lora-node-1' }],
+    })
     workspace.addDevice(target, { x: 13, y: 14 })
 
     assert.equal(workspace.hasDevice('node-1'), true)
@@ -192,10 +208,12 @@ describe('Workspace', () => {
 
   it('removes devices from registry, spatial and placement indexes', () => {
     const workspace = createWorkspace()
-    const source = createDevice('node-1')
+    const source = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
     const target = createDevice('node-2')
 
-    workspace.addDevice(source, { x: 10, y: 10 }, { address: 'lora-node-1' })
+    workspace.addDevice(source, { x: 10, y: 10 }, {
+      endpoints: [{ deviceId: 'node-1', moduleId: 'node-1-lora', protocol: 'lora', address: 'lora-node-1' }],
+    })
     workspace.addDevice(target, { x: 13, y: 14 })
     workspace.removeDevice('node-2')
 
@@ -280,8 +298,8 @@ describe('Workspace', () => {
 
   it('assigns and resolves LoRa addresses through workspace domain API', () => {
     const workspace = createWorkspace()
-    const node = createDevice('node-1')
-    const gateway = createDevice('gateway-1', DeviceRole.GATEWAY)
+    const node = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
+    const gateway = createDevice('gateway-1', DeviceRole.GATEWAY, [createLoRaLikeModule('gateway-1-lora')])
 
     workspace.addDevice(node, { x: 10, y: 10 })
     workspace.addDevice(gateway, { x: 20, y: 20 })
@@ -294,9 +312,11 @@ describe('Workspace', () => {
 
   it('creates serializable snapshots independent from internal maps', () => {
     const workspace = createWorkspace()
-    const device = createDevice('node-1')
+    const device = createDevice('node-1', DeviceRole.NODE, [createLoRaLikeModule('node-1-lora')])
 
-    workspace.addDevice(device, { x: 10, y: 20 }, { address: 'lora-node-1' })
+    workspace.addDevice(device, { x: 10, y: 20 }, {
+      endpoints: [{ deviceId: 'node-1', moduleId: 'node-1-lora', protocol: 'lora', address: 'lora-node-1' }],
+    })
 
     const snapshot = workspace.getSnapshot()
     const encoded = JSON.stringify(snapshot)
@@ -319,7 +339,7 @@ describe('Workspace', () => {
             role: DeviceRole.NODE,
             lifecycleState: 'new',
             executionState: 'idle',
-            moduleCount: 0,
+            moduleCount: 1,
             bufferSize: 0,
           },
           config: {
@@ -330,7 +350,40 @@ describe('Workspace', () => {
           },
           position: { x: 10, y: 20 },
           address: 'lora-node-1',
-          modules: [],
+          networkEndpoints: [
+            {
+              deviceId: 'node-1',
+              moduleId: 'node-1-lora',
+              protocol: 'lora',
+              address: 'lora-node-1',
+            },
+          ],
+          modules: [
+            {
+              id: 'node-1-lora',
+              kind: 'network',
+              name: 'LoRa network',
+              model: 'SX1276 Stub',
+              version: '1.0.0',
+              lifecycleState: 'new',
+              executionState: 'idle',
+              communication: {
+                protocol: 'lora',
+                maxRangeMeters: 1000,
+                maxConnections: 8,
+                spreadingFactor: 12,
+                bandwidthHz: 125000,
+                txPowerDbm: 14,
+                codingRate: '4/5',
+                sourceLabel: 'LoRa module config',
+              },
+              config: {
+                radio: {
+                  maxRangeMeters: 1000,
+                },
+              },
+            },
+          ],
         },
       ],
       possibleConnections: [],

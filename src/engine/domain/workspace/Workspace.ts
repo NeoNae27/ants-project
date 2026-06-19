@@ -1,6 +1,6 @@
 import type { DeviceCore } from '../device/DeviceCore'
 import type { DeviceRole } from '../device/DeviceRole'
-import { DeviceRegistry, type DeviceAddress, type DeviceId, type LoRaAddress } from '../registry'
+import { DeviceRegistry, type DeviceAddress, type DeviceId, type LoRaAddress, type ModuleId } from '../registry'
 import { SpatialGrid, type SpatialIndex } from '../spatial'
 import { createWorkspaceDeviceSnapshot, createWorkspaceSnapshot } from './WorkspaceMappers'
 import { WorkspaceError } from './WorkspaceErrors'
@@ -87,7 +87,7 @@ export class Workspace {
 
     const position = this.getStoredPositionOrThrow(deviceId)
     this.registry.getOrThrow(deviceId)
-    this.registry.getAddress(deviceId)
+    this.registry.getLoRaAddress(deviceId)
 
     this.spatialIndex.remove(deviceId)
 
@@ -173,13 +173,37 @@ export class Workspace {
 
   getAddress(deviceId: DeviceId): DeviceAddress | undefined {
     this.assertDeviceId(deviceId)
-    return this.registry.getAddress(deviceId)
+    return this.registry.getLoRaAddress(deviceId)
   }
 
-  assignDeviceLoRaAddress(deviceId: DeviceId, loraAddress: LoRaAddress): void {
+  assignDeviceLoRaAddress(deviceId: DeviceId, loraAddress: LoRaAddress, moduleId?: ModuleId): void {
     this.assertDeviceId(deviceId)
     this.assertPlacedDevice(deviceId)
-    this.registry.registerAddress(deviceId, loraAddress)
+    const targetModuleId = moduleId ?? this.getFirstLoRaModuleId(deviceId)
+
+    this.registry.registerEndpoint({
+      deviceId,
+      moduleId: targetModuleId,
+      protocol: 'lora',
+      address: loraAddress,
+    })
+  }
+
+  registerDeviceModule(deviceId: DeviceId, moduleId: ModuleId): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
+
+    const device = this.registry.getOrThrow(deviceId)
+    const module = device.getModule(moduleId)
+
+    if (!module) {
+      throw new WorkspaceError('WORKSPACE_MODULE_NOT_FOUND', `Device module not found: ${moduleId}`, {
+        deviceId,
+        moduleId,
+      })
+    }
+
+    this.registry.registerModule(deviceId, module)
   }
 
   getRegistryQueries(): DeviceRegistryQueryPort {
@@ -189,7 +213,9 @@ export class Workspace {
       has: (deviceId) => this.registry.has(deviceId),
       list: () => this.registry.list(),
       listByRole: (role) => this.registry.listByRole(role),
-      getLoRaAddress: (deviceId) => this.registry.getAddress(deviceId),
+      getLoRaAddress: (deviceId, moduleId) => this.registry.getLoRaAddress(deviceId, moduleId),
+      getEndpointsByDevice: (deviceId) => this.registry.getEndpointsByDevice(deviceId),
+      getEndpointsByModule: (moduleId) => this.registry.getEndpointsByModule(moduleId),
       size: () => this.registry.size(),
     }
   }
@@ -202,7 +228,8 @@ export class Workspace {
       return createWorkspaceDeviceSnapshot({
         device,
         position,
-        address: this.registry.getAddress(deviceId),
+        address: this.registry.getLoRaAddress(deviceId),
+        networkEndpoints: this.registry.getEndpointsByDevice(deviceId),
       })
     })
 
@@ -302,6 +329,33 @@ export class Workspace {
     }
 
     return { ...position }
+  }
+
+  private getFirstLoRaModuleId(deviceId: DeviceId): ModuleId {
+    const modules = this.registry.listModulesByDevice(deviceId)
+    const loraModule = modules.find((registeredModule) => {
+      const snapshot = registeredModule.module.getSnapshot()
+
+      if (typeof snapshot !== 'object' || snapshot === null) {
+        return false
+      }
+
+      const config = (snapshot as Record<string, unknown>).config
+
+      return (
+        typeof config === 'object' &&
+        config !== null &&
+        'radio' in (config as Record<string, unknown>)
+      )
+    })
+
+    if (!loraModule) {
+      throw new WorkspaceError('WORKSPACE_MODULE_NOT_FOUND', `LoRa module not found for device: ${deviceId}`, {
+        deviceId,
+      })
+    }
+
+    return loraModule.module.id
   }
 
   private getDefaultCellSize(config: WorkspaceConfig): number {

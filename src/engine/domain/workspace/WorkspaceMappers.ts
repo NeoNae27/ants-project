@@ -1,6 +1,6 @@
 import type { DeviceCore } from '../device/DeviceCore'
 import type { DeviceModule } from '../module'
-import type { DeviceAddress } from '../registry'
+import type { DeviceAddress, NetworkEndpoint } from '../registry'
 import type {
   WorkspaceConfig,
   WorkspaceCommunicationConfigDto,
@@ -87,6 +87,7 @@ export function createWorkspaceDeviceSnapshot(params: {
   device: DeviceCore
   position: WorkspacePosition
   address?: DeviceAddress
+  networkEndpoints?: readonly NetworkEndpoint[]
 }): WorkspaceDeviceSnapshot {
   const info = deviceToWorkspaceDeviceInfoDto(params.device)
 
@@ -96,6 +97,7 @@ export function createWorkspaceDeviceSnapshot(params: {
     config: params.device.getConfig(),
     position: { ...params.position },
     address: params.address,
+    networkEndpoints: (params.networkEndpoints ?? []).map((endpoint) => ({ ...endpoint })),
     modules: params.device.getModules().map(moduleToWorkspaceModuleSnapshot),
   }
 }
@@ -116,6 +118,7 @@ export function createWorkspaceSnapshot(
       info: { ...device.info },
       config: { ...device.config },
       position: { ...device.position },
+      networkEndpoints: device.networkEndpoints.map((endpoint) => ({ ...endpoint })),
       modules: device.modules.map((module) => ({
         ...module,
         communication: module.communication ? { ...module.communication } : undefined,

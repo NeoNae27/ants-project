@@ -29,6 +29,7 @@ import type {
   WorkspaceModuleTemplateDto,
   WorkspaceSessionEvent,
 } from '../../../shared/workspaceSession'
+import type { NetworkEndpoint } from '../../domain/registry'
 import { WorkspacePlacementService } from './WorkspacePlacementService'
 import { WorkspaceSessionError } from './WorkspaceSessionErrors'
 
@@ -101,6 +102,10 @@ function moduleSnapshotToTemplate(module: WorkspaceModuleSnapshot): WorkspaceMod
 
 function getLoRaModule(device: WorkspaceDeviceSnapshot): WorkspaceModuleSnapshot | undefined {
   return device.modules.find((module) => module.communication?.protocol === 'lora')
+}
+
+function getFirstLoRaModuleIdFromModules(modules: readonly DeviceModule[]): string | undefined {
+  return modules.find((module) => module instanceof LoRaModule)?.id
 }
 
 function createConnectionId(sourceDeviceId: string, targetDeviceId: string, sourceModuleId: string): string {
@@ -224,9 +229,19 @@ export class WorkspaceSession {
       modules,
     })
 
-    workspace.addDevice(device, finalPosition, {
-      address: command.loraAddress,
-    })
+    const endpoints: NetworkEndpoint[] = []
+    const loraModuleId = getFirstLoRaModuleIdFromModules(modules)
+
+    if (command.loraAddress && loraModuleId) {
+      endpoints.push({
+        deviceId,
+        moduleId: loraModuleId,
+        protocol: 'lora',
+        address: command.loraAddress,
+      })
+    }
+
+    workspace.addDevice(device, finalPosition, { endpoints })
 
     return this.getSnapshot()
   }
@@ -263,6 +278,7 @@ export class WorkspaceSession {
     })
 
     device.addModule(module)
+    workspace.registerDeviceModule(command.deviceId, module.id)
 
     return this.getSnapshot()
   }
@@ -287,7 +303,7 @@ export class WorkspaceSession {
   }
 
   assignDeviceLoRaAddress(command: AssignDeviceLoRaAddressCommand): WorkspaceSnapshot {
-    this.getWorkspaceOrThrow().assignDeviceLoRaAddress(command.deviceId, command.loraAddress)
+    this.getWorkspaceOrThrow().assignDeviceLoRaAddress(command.deviceId, command.loraAddress, command.moduleId)
     return this.getSnapshot()
   }
 

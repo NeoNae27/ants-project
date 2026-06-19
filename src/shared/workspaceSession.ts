@@ -65,6 +65,7 @@ export type UpdateModuleCommand = {
 export type AssignDeviceLoRaAddressCommand = {
   type: 'workspace/assign-device-lora-address'
   deviceId: string
+  moduleId?: string
   loraAddress: string
 }
 

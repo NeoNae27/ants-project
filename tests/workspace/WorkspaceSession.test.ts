@@ -199,8 +199,16 @@ describe('WorkspaceSession', () => {
   it('assigns LoRa addresses and rejects duplicates', () => {
     const session = new WorkspaceSession()
     createProject(session)
-    const first = session.dispatch({ type: 'workspace/add-device', position: { x: 100, y: 100 } })
-    const second = session.dispatch({ type: 'workspace/add-device', position: { x: 200, y: 200 } })
+    const first = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 100, y: 100 },
+      modules: [loraTemplate],
+    })
+    const second = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 200, y: 200 },
+      modules: [loraTemplate],
+    })
 
     assertOk(first)
     assertOk(second)
