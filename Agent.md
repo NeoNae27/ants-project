@@ -5,7 +5,7 @@
 - Project root: `C:\Users\nikit\Documents\Master Degree Project\ants-app`
 - Updated: `2026-06-20`
 - App: desktop simulator for ANTS / Device Network Simulator.
-- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace session layer, module factories, endpoint-based device registry, and LoRa possible-link visualization.
+- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace session layer, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
 
 ## Stack And Commands
 
@@ -34,7 +34,7 @@ Common commands from `package.json`:
 
 - Electron shell:
   - `src/main/index.ts` creates a `1280x720` window.
-  - `src/main/menu/applicationMenu.ts` defines native menu commands: project/workspace/edit/debug actions.
+  - `src/main/menu/applicationMenu.ts` defines native menu commands: project/workspace/edit/view/debug actions.
   - `src/main/workspace/workspaceIpc.ts` registers `workspace:dispatch`.
   - `src/preload/index.ts` exposes `window.api.workspace.dispatch(command)` plus menu event subscriptions.
 
@@ -43,25 +43,27 @@ Common commands from `package.json`:
   - Mutating UI actions dispatch `WorkspaceCommand` through IPC and apply `WorkspaceCommandResult`.
   - Renderer presentation state still includes selected device id, camera/zoom/pan, dialogs, cursor placement, collapsible side panels, and debug toggles.
   - `WorkspaceView.tsx` renders left navigator, central dotted workspace, device drag, zoom/pan, possible links, right inspector, and bottom status bar.
-  - `DeviceInspector.tsx` can add modules and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
+  - View menu can toggle a LoRa spatial-grid overlay on the workspace.
+  - `DeviceInspector.tsx` can add modules, remove modules, and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
 
 - Application/session layer:
   - `src/engine/application/workspace/WorkspaceSessionManager.ts` owns the live `WorkspaceSession | null`.
   - `WorkspaceSessionManager.dispatch(command)` always returns `WorkspaceCommandResult`, not raw snapshots.
   - `src/engine/application/workspace/WorkspaceSession.ts` is the application/controller layer for editing a project.
-  - `WorkspaceSession` implements create project, add/move/delete device, add/update module, assign LoRa endpoint address, copy/paste, validate, and get snapshot.
+  - `WorkspaceSession` implements create project, add/move/delete device, add/update/remove module, assign LoRa endpoint address, copy/paste, validate, get snapshot, and get spatial-index debug data.
   - `WorkspacePlacementService` handles UX placement rules: free position near desired point, paste offsets/collision avoidance.
 
 - Shared command contracts:
-  - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, command variants, `WorkspaceCommandResult`, events, module templates, and patches.
+  - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, command variants, `WorkspaceCommandResult`, events, module templates, module patches, validation mode, and debug result DTO hooks.
   - Renderer/main/preload share these DTO types.
 
 - Engine workspace:
   - `src/engine/domain/workspace/Workspace.ts` owns low-level domain invariants and atomically coordinates placement, registry, and spatial index.
   - `Workspace` owns device positions. `DeviceRegistry` does not own coordinates.
-  - `Workspace.addDevice`, `moveDevice`, `removeDevice`, `findNearbyDevices`, `assignDeviceLoRaAddress`, `getSnapshot`, `validate` are implemented.
+  - `Workspace.addDevice`, `moveDevice`, `removeDevice`, `addModule`, `removeModule`, `updateLoRaModuleConfig`, `updateStubModuleConfig`, `assignModuleEndpoint`, `findNearbyDevices`, `assignDeviceLoRaAddress`, `getSnapshot`, `getSpatialIndexSnapshot`, and `validate` are implemented.
   - `Workspace.getRegistryQueries()` returns a read-only query port, not a mutable registry.
   - `WorkspaceSnapshot` is serializable DTO data, not `DeviceCore`, `Map`, `Set`, or spatial internals.
+  - `Workspace.validate()` checks registry/placement/spatial consistency, endpoint/module consistency, position bounds, duplicate endpoint addresses, possible connection sanity, and optional network-level gateway reachability.
 
 - Device registry:
   - `DeviceRegistry` is now endpoint-based, not "one address per device".
@@ -74,6 +76,7 @@ Common commands from `package.json`:
 - Spatial domain:
   - `SpatialGrid` supports insert/update/remove, position lookup, circular nearby search, distance in units/meters, stats, bounds validation, and typed errors.
   - `Workspace.findNearbyDevices(deviceId, rangeMeters)` explicitly converts meters to workspace units and excludes the source device.
+  - `WorkspaceSpatialIndexSnapshot` exposes serializable debug data: workspace config, spatial stats, device entries, cell keys, placement/spatial positions, and consistency flag.
 
 - Device/module domain:
   - `DeviceCore` stores identity, model/version, role, lifecycle/execution state, config, metadata, modules, and a bounded message buffer.
@@ -99,7 +102,7 @@ Application/controller layer for workspace editing.
 Domain workspace and serializable snapshots.
 
 - `Workspace.ts` - owner of placement and atomic coordination between `DeviceRegistry`, `SpatialGrid`, and `placementIndex`.
-- `WorkspaceTypes.ts` - config, positions, snapshots, module DTOs, possible connections, registry query port.
+- `WorkspaceTypes.ts` - config, positions, snapshots, module DTOs, possible connections, spatial debug DTOs, validation options/issues, registry query port.
 - `WorkspaceMappers.ts` - copies `DeviceCore`/module public data into serializable workspace DTOs.
 - `WorkspaceErrors.ts` - typed workspace errors.
 - `index.ts` - barrel export.
@@ -147,7 +150,8 @@ Generic module contracts and concrete/current module implementations.
 
 Cross-process DTO types.
 
-- `workspaceSession.ts` - `WorkspaceCommand`, `WorkspaceCommandResult`, command payloads, session events, module template/patch DTOs.
+- `workspaceSession.ts` - `WorkspaceCommand`, `WorkspaceCommandResult`, command payloads, session events, module template/patch DTOs, validation mode, and debug DTO envelope.
+- Debug-capable command/result flow includes `workspace/get-spatial-index-debug` and `WorkspaceCommandResult.debug.spatialIndex`.
 
 ### `src/main`, `src/preload`, `src/renderer`
 
@@ -167,18 +171,21 @@ Electron and UI.
 - Add Device dispatches add-device with desired position. Session chooses final free placement.
 - Ctrl+D adds at cursor; menu add uses camera center.
 - Devices can be selected, dragged, copied/pasted, and deleted through session commands.
+- Modules can be added, edited, and removed through session commands from the right inspector.
 - Side panels show devices, possible LoRa links, device details, modules, config, and stats.
 - Possible LoRa links are runtime-derived from snapshot/device/module/position data; no real connection state is persisted.
-- Debug menu can enable logs and show a devices register view in console.
+- View menu can toggle visual LoRa spatial-grid overlay.
+- Debug menu can enable logs, show a devices register view in console, and show a spatial index debug view in console.
 
 ## Important Architecture Rules
 
 - UI should display state and send commands; it should not be the source of simulation/domain truth.
 - Canonical workspace/device/module/endpoint state lives behind `WorkspaceSessionManager` in Electron main.
 - `WorkspaceSession` handles application-level editing commands and returns `WorkspaceCommandResult`.
-- `Workspace` owns low-level placement/domain invariants and atomic updates.
+- `Workspace` owns low-level placement/module/endpoint/domain invariants and atomic updates.
 - `DeviceRegistry` is runtime-only and endpoint-based. Do not reintroduce a single `device -> address` model.
 - Device position is owned by `Workspace`, not `DeviceRegistry` or `DeviceCore`.
+- Module mutation should go through `Workspace.addModule/removeModule/updateLoRaModuleConfig/updateStubModuleConfig`; avoid mutating `DeviceCore` modules from `WorkspaceSession` or UI.
 - `DeviceCore` remains transport-agnostic.
 - `LoRaModule` only creates/holds packets and buffers. Delivery belongs to future `WirelessMedium`.
 - `WorkspaceSnapshot` must stay serializable and independent from internal maps/classes.
@@ -190,8 +197,8 @@ Electron and UI.
 - `tests/modules/ModuleFactory.test.ts` - LoRa module and stub module creation.
 - `tests/registry/DeviceRegistry.test.ts` - device/module/network endpoint indexes.
 - `tests/spatial/SpatialGrid.test.ts` - spatial index behavior.
-- `tests/workspace/Workspace.test.ts` - atomic workspace + registry/spatial/placement behavior.
-- `tests/workspace/WorkspaceSession.test.ts` - command result envelope, session manager, add/move/delete/module/address/copy/paste/link behavior.
+- `tests/workspace/Workspace.test.ts` - atomic workspace + registry/spatial/placement/module/endpoint/debug/validation behavior.
+- `tests/workspace/WorkspaceSession.test.ts` - command result envelope, session manager, add/move/delete/module/address/copy/paste/link/debug behavior.
 - `tests/workspace/WorkspaceConnections.test.ts` - renderer pure helper behavior.
 - `tests/types/DeviceSnapshot.test-d.ts` - type-level device snapshot checks.
 
@@ -210,6 +217,8 @@ Electron and UI.
 - `WorkspaceConnections.test.ts` covers legacy renderer helpers; canonical possible links now come from `WorkspaceSession.getSnapshot()`.
 - `assignDeviceLoRaAddress` needs a LoRa-capable module; without a module endpoint target it should fail rather than creating a device-level address.
 - `maxConnections` limits displayed/derived outgoing LoRa candidates, not real network capacity or packet routing.
+- `Workspace.validate()` defaults to project mode. Use `workspace.validate({ mode: 'network' })` or `workspace/validate-project` with `mode: 'network'` when gateway/path checks should apply.
+- Spatial index console output is debug DTO data from engine/session, not a renderer-owned source of truth.
 - No database or JSON persistence layer exists yet.
 
 ## Useful Docs Outside `ants-app`
