@@ -8,7 +8,8 @@ import type {
   WorkspaceDevice,
   WorkspaceModule,
   WorkspacePoint,
-  WorkspaceProject
+  WorkspaceProject,
+  WorkspaceSpatialGridVisibility
 } from './workspace/types'
 
 const DEFAULT_PROJECT: WorkspaceProject = {
@@ -105,6 +106,10 @@ function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
+  const [spatialGridVisibility, setSpatialGridVisibility] =
+    useState<WorkspaceSpatialGridVisibility>({
+      lora: false
+    })
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false)
   const [addDeviceRequest, setAddDeviceRequest] = useState<{
     id: number
@@ -360,6 +365,12 @@ function App(): React.JSX.Element {
       requestPasteDevice(command.placement)
     )
     const cleanupDeleteSelectedDevice = window.api.menu.onDeleteSelectedDevice(deleteSelectedDevice)
+    const cleanupSetSpatialGridVisibility = window.api.menu.onSetSpatialGridVisibility((command) => {
+      setSpatialGridVisibility((current) => ({
+        ...current,
+        [command.technology]: command.visible
+      }))
+    })
     const cleanupSetDebugging = window.api.menu.onSetDebugging((command) => {
       setDebugEnabled(command.enabled)
       console.info(`[Debug] Debugging ${command.enabled ? 'enabled' : 'disabled'}`)
@@ -372,6 +383,7 @@ function App(): React.JSX.Element {
       cleanupCopySelectedDevice()
       cleanupPasteDevice()
       cleanupDeleteSelectedDevice()
+      cleanupSetSpatialGridVisibility()
       cleanupSetDebugging()
       cleanupShowDevicesRegister()
     }
@@ -420,6 +432,7 @@ function App(): React.JSX.Element {
         selectedDeviceId={selectedDeviceId}
         selectedDevice={selectedDevice}
         possibleConnections={snapshot?.possibleConnections ?? []}
+        spatialGridVisibility={spatialGridVisibility}
         addDeviceRequest={addDeviceRequest}
         pasteDeviceRequest={pasteDeviceRequest}
         onAddDeviceAt={addDeviceAt}

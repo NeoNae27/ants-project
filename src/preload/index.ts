@@ -15,6 +15,11 @@ type DebuggingCommand = {
   enabled: boolean
 }
 type DebuggingCommandCallback = (command: DebuggingCommand) => void
+type SpatialGridVisibilityCommand = {
+  technology: 'lora'
+  visible: boolean
+}
+type SpatialGridVisibilityCommandCallback = (command: SpatialGridVisibilityCommand) => void
 
 const api = {
   workspace: {
@@ -50,6 +55,14 @@ const api = {
     onDeleteSelectedDevice(callback: MenuCommandCallback) {
       ipcRenderer.on('menu:delete-selected-device', callback)
       return () => ipcRenderer.removeListener('menu:delete-selected-device', callback)
+    },
+    onSetSpatialGridVisibility(callback: SpatialGridVisibilityCommandCallback) {
+      const listener = (_event: IpcRendererEvent, command?: SpatialGridVisibilityCommand) => {
+        callback(command ?? { technology: 'lora', visible: false })
+      }
+
+      ipcRenderer.on('menu:set-spatial-grid-visibility', listener)
+      return () => ipcRenderer.removeListener('menu:set-spatial-grid-visibility', listener)
     },
     onSetDebugging(callback: DebuggingCommandCallback) {
       const listener = (_event: IpcRendererEvent, command?: DebuggingCommand) => {

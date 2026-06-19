@@ -3,145 +3,214 @@
 Короткая карта проекта для следующих Codex-заходов. Сначала используй этот файл как навигацию, но перед рискованными изменениями сверяй детали с исходниками.
 
 - Project root: `C:\Users\nikit\Documents\Master Degree Project\ants-app`
-- Updated: `2026-06-19`
+- Updated: `2026-06-20`
 - App: desktop simulator for ANTS / Device Network Simulator.
-- Current state: early Electron + React shell with a developed TypeScript domain model for devices, modules, and LoRa packets.
+- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace session layer, module factories, endpoint-based device registry, and LoRa possible-link visualization.
 
 ## Stack And Commands
 
-- Runtime/tooling: Node.js, npm, TypeScript, Electron, electron-vite, React.
-- UI: React 19 renderer under `src/renderer`; currently almost empty.
-- Tests: Node built-in test runner plus `tsc` compilation for test builds.
+- Runtime/tooling: Node.js, npm, TypeScript, Electron, electron-vite, React 19.
 - Package manager: npm (`package-lock.json` exists).
+- Tests: Node built-in test runner plus `tsc -p tsconfig.tests.json`.
+- Renderer talks to main through preload IPC; main owns the live `WorkspaceSessionManager`.
 
 Common commands from `package.json`:
 
 - `npm run dev` - start electron-vite dev mode.
 - `npm run start` - preview built app.
 - `npm run typecheck` - run node and web TypeScript checks.
-- `npm run test:device-core` - compile and run `DeviceCore` tests.
-- `npm run test:device-factory` - compile and run `DeviceFactory` tests.
-- `npm run test:types` - compile type-level tests.
-- `npm run build` - typecheck and build.
-- `npm run build:win`, `npm run build:mac`, `npm run build:linux` - package per OS.
+- `npm run build` - typecheck and build Electron main/preload/renderer.
+- `npm run test:device-core` - `DeviceCore` tests.
+- `npm run test:device-factory` - `DeviceFactory` tests.
+- `npm run test:module-factory` - `ModuleFactory` / `StubModule` tests.
+- `npm run test:registry` - endpoint-based `DeviceRegistry` tests.
+- `npm run test:spatial` - `SpatialGrid` tests.
+- `npm run test:workspace` - engine `Workspace` tests.
+- `npm run test:workspace-session` - `WorkspaceSession` and `WorkspaceSessionManager` tests.
+- `npm run test:workspace-connections` - renderer-level pure connection helpers.
+- `npm run test:types` - type-level tests.
 
 ## What Is Ready
 
-- Electron application skeleton is present:
-  - `src/main/index.ts` creates a `1280x720` `BrowserWindow`, loads Vite dev URL in development and renderer HTML in production, wires basic `ping` IPC log.
-  - `src/preload/index.ts` exposes Electron Toolkit API and an empty custom `api` object.
-  - `src/renderer/src/App.tsx` currently renders an empty fragment.
+- Electron shell:
+  - `src/main/index.ts` creates a `1280x720` window.
+  - `src/main/menu/applicationMenu.ts` defines native menu commands: project/workspace/edit/debug actions.
+  - `src/main/workspace/workspaceIpc.ts` registers `workspace:dispatch`.
+  - `src/preload/index.ts` exposes `window.api.workspace.dispatch(command)` plus menu event subscriptions.
 
-- Device domain is the most complete implemented area:
-  - `DeviceCore` stores identity, model/version, role, lifecycle state, execution state, config, metadata, attached modules, and a bounded internal message buffer.
-  - `DeviceCore` validates required fields and config intervals/retries.
-  - Lifecycle transitions are table-driven through `allowedDeviceTransitions`.
-  - Successful lifecycle transitions write log messages into the internal device buffer.
-  - Decommissioned devices block role changes, config changes, module changes, and execution state changes.
-  - Snapshots return copies for config/meta/buffer so simple external mutation does not leak back into the device.
+- UI workspace:
+  - `src/renderer/src/App.tsx` no longer owns the canonical device list. It holds presentation state plus the latest `WorkspaceSnapshot`.
+  - Mutating UI actions dispatch `WorkspaceCommand` through IPC and apply `WorkspaceCommandResult`.
+  - Renderer presentation state still includes selected device id, camera/zoom/pan, dialogs, cursor placement, collapsible side panels, and debug toggles.
+  - `WorkspaceView.tsx` renders left navigator, central dotted workspace, device drag, zoom/pan, possible links, right inspector, and bottom status bar.
+  - `DeviceInspector.tsx` can add modules and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
 
-- Factory support exists:
-  - `DeviceFactory.createNode()` creates a `DeviceRole.NODE` device with default heartbeat/transmission/retry/power config and x/y location.
-  - It can attach `DeviceModule` implementations at creation time.
+- Application/session layer:
+  - `src/engine/application/workspace/WorkspaceSessionManager.ts` owns the live `WorkspaceSession | null`.
+  - `WorkspaceSessionManager.dispatch(command)` always returns `WorkspaceCommandResult`, not raw snapshots.
+  - `src/engine/application/workspace/WorkspaceSession.ts` is the application/controller layer for editing a project.
+  - `WorkspaceSession` implements create project, add/move/delete device, add/update module, assign LoRa endpoint address, copy/paste, validate, and get snapshot.
+  - `WorkspacePlacementService` handles UX placement rules: free position near desired point, paste offsets/collision avoidance.
 
-- Module contracts exist:
-  - `DeviceModule` is the minimal interface used by `DeviceCore`.
-  - `BaseModule<TConfig, TBufferItem>` extends it with config, buffer, lifecycle, and execution operations.
-  - Module categories are represented by `ModuleKind`: `network`, `sensor`, `power`, `compute`, `storage`.
-  - Module lifecycle/execution enums and `ModuleDomainError` are defined.
+- Shared command contracts:
+  - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, command variants, `WorkspaceCommandResult`, events, module templates, and patches.
+  - Renderer/main/preload share these DTO types.
 
-- LoRa network module exists as a first concrete module:
-  - `LoRaModule` stores radio/mesh config, lifecycle state, execution state, LoRa runtime state, inbound packet buffer, and outbound message buffer.
-  - It creates outbound messages, builds `LoRaPacket` objects, and supports `sendUnconfirmed()`.
-  - It can receive packets into its inbound buffer if state allows reception.
-  - It deliberately does not deliver packets between devices; delivery is reserved for a future `WirelessMedium`.
-  - LoRa types cover profiles, regions, radio config, mesh options, outbound messages, packets, and send results.
+- Engine workspace:
+  - `src/engine/domain/workspace/Workspace.ts` owns low-level domain invariants and atomically coordinates placement, registry, and spatial index.
+  - `Workspace` owns device positions. `DeviceRegistry` does not own coordinates.
+  - `Workspace.addDevice`, `moveDevice`, `removeDevice`, `findNearbyDevices`, `assignDeviceLoRaAddress`, `getSnapshot`, `validate` are implemented.
+  - `Workspace.getRegistryQueries()` returns a read-only query port, not a mutable registry.
+  - `WorkspaceSnapshot` is serializable DTO data, not `DeviceCore`, `Map`, `Set`, or spatial internals.
 
-- Tests exist for implemented device behavior:
-  - `tests/device/DeviceCore.test.ts` covers snapshots, module add/remove errors, lifecycle transitions, buffer capacity/draining, invalid config, and decommission guards.
-  - `tests/device/DeviceFactory.test.ts` covers node defaults, unnamed node behavior, lifecycle logging, and module attachment.
-  - `tests/types/DeviceSnapshot.test-d.ts` checks the `DeviceInfo` type contract.
+- Device registry:
+  - `DeviceRegistry` is now endpoint-based, not "one address per device".
+  - Main indexes: `devicesById`, `devicesByRole`, `modulesById`, `modulesByDeviceId`, `endpointsByAddress`, `endpointsByModuleId`, `endpointsByDeviceId`.
+  - `NetworkEndpoint = { deviceId, moduleId, protocol, address }`.
+  - Protocols currently include `lora | wifi | ble | custom`.
+  - LoRa address is attached to a module endpoint, not directly to a device.
+  - Compatibility/query helpers still exist for LoRa-oriented lookups such as `getByLoRaAddress` and `getLoRaAddress`.
+
+- Spatial domain:
+  - `SpatialGrid` supports insert/update/remove, position lookup, circular nearby search, distance in units/meters, stats, bounds validation, and typed errors.
+  - `Workspace.findNearbyDevices(deviceId, rangeMeters)` explicitly converts meters to workspace units and excludes the source device.
+
+- Device/module domain:
+  - `DeviceCore` stores identity, model/version, role, lifecycle/execution state, config, metadata, modules, and a bounded message buffer.
+  - `DeviceFactory.createDevice()` creates generic devices; `createNode()` remains for node defaults/back-compat.
+  - `ModuleFactory` creates real `LoRaModule` for LoRa templates and `StubModule` for sensor/power/compute/storage/non-LoRa placeholders.
+  - `LoRaModule` stores LoRa radio/mesh config, runtime state, inbound/outbound buffers, builds packets, and does not deliver packets.
+  - LoRa config includes `maxRangeMeters` and `maxConnections` (default `8`) for limiting possible outgoing link candidates.
 
 ## Domain Map
+
+### `src/engine/application/workspace`
+
+Application/controller layer for workspace editing.
+
+- `WorkspaceSessionManager.ts` - main-process live session owner and command forwarder.
+- `WorkspaceSession.ts` - command dispatcher and editing controller over `Workspace`, `DeviceFactory`, `ModuleFactory`, placement service, and clipboard DTO.
+- `WorkspacePlacementService.ts` - UX placement helper; domain bounds remain in `Workspace`.
+- `WorkspaceSessionErrors.ts` - typed application/session errors.
+- `index.ts` - barrel export.
+
+### `src/engine/domain/workspace`
+
+Domain workspace and serializable snapshots.
+
+- `Workspace.ts` - owner of placement and atomic coordination between `DeviceRegistry`, `SpatialGrid`, and `placementIndex`.
+- `WorkspaceTypes.ts` - config, positions, snapshots, module DTOs, possible connections, registry query port.
+- `WorkspaceMappers.ts` - copies `DeviceCore`/module public data into serializable workspace DTOs.
+- `WorkspaceErrors.ts` - typed workspace errors.
+- `index.ts` - barrel export.
+
+### `src/engine/domain/registry`
+
+Runtime in-memory indexes over `DeviceCore`, modules, and network endpoints.
+
+- `DeviceRegistry.ts` - device/module/endpoint indexes and query methods.
+- `DeviceRegistryTypes.ts` - `NetworkEndpoint`, protocol/address/module/device types.
+- `DeviceRegistryErrors.ts` - typed registry errors.
+- `index.ts` - barrel export.
+
+### `src/engine/domain/spatial`
+
+Spatial index for workspace units.
+
+- `spatial-grid.ts` - grid-backed spatial index implementation.
+- `spatial-index.ts` - interface.
+- `spatial.types.ts` - position/search/stat types.
+- `spatial-errors.ts` - typed spatial errors.
 
 ### `src/engine/domain/device`
 
 Core simulated device model.
 
-- `DeviceCore.ts` - aggregate root for a simulated device. Owns generic device state and module collection, but intentionally does not implement radio, sensor, battery, routing, or wireless delivery logic.
-- `DeviceConfig.ts` - generic device config: heartbeat interval, transmission interval, max retries, power mode.
-- `DeviceRole.ts` - network role: `node`, `repeater`, `gateway`.
-- `DeviceLifecycleState.ts` - lifecycle stage: `new`, `commissioning`, `bound`, `provisioned`, `active`, `sleep`, `orphaned`, `fault`, `decommissioned`.
-- `DeviceExecutionState.ts` - current execution activity: `idle`, `running`, `sleeping`, `paused`, `stopped`.
-- `DeviceTransitions.ts` - allowed lifecycle transition table.
-- `DeviceMessage.ts` - generic messages in the device internal buffer: telemetry, log, control, system.
-- `DeviceMeta.ts` - timestamps, optional simulator/geographic location, tags, description.
-- `DeviceSnapshot.ts` - DTO types for `DeviceInfo` and full snapshots.
-- `DeviceFactory.ts` - currently only creates node devices.
-- `DeviceErrors.ts` - typed domain error with machine-readable `code`.
-- `DeviceBuffer.ts` - generic bounded queue shape, but `DeviceCore` still has an inline buffer implementation.
+- `DeviceCore.ts` - aggregate root for simulated device identity/state/modules/buffer.
+- `DeviceFactory.ts` - creates generic devices and default nodes.
+- `DeviceConfig.ts`, `DeviceMeta.ts`, `DeviceMessage.ts`, `DeviceSnapshot.ts` - DTO/config/message types.
+- `DeviceRole.ts`, `DeviceLifecycleState.ts`, `DeviceExecutionState.ts`, `DeviceTransitions.ts` - state/role model.
+- `DeviceErrors.ts`, `DeviceValidation.ts`, `DeviceBuffer.ts` - errors and supporting contracts.
 
-### `src/engine/domain/module`
+### `src/engine/domain/module` and `src/engine/domain/modules`
 
-Generic module model for device capabilities.
+Generic module contracts and concrete/current module implementations.
 
-- `DeviceModule.ts` - minimal contract every module must satisfy for attachment to `DeviceCore`.
-- `BaseModule.ts` - richer interface for modules with config and buffers.
-- `ModuleKind.ts` - capability category enum.
-- `ModuleLifecycleState.ts` - lifecycle for modules: `new`, `initialized`, `active`, `suspended`, `failed`, `decommissioned`.
-- `ModuleExecutionState.ts` - current module activity: `idle`, `running`, `paused`, `stopped`.
-- `ModuleErrors.ts` - typed module domain error.
-- `index.ts` - barrel export for the module domain.
+- `module/DeviceModule.ts` - minimal module interface used by `DeviceCore`.
+- `module/BaseModule.ts` - richer config/buffer module shape.
+- `module/ModuleKind.ts`, lifecycle/execution enums, errors.
+- `modules/ModuleFactory.ts` - creates real LoRa or stub modules from UI/session templates.
+- `modules/StubModule.ts` - serializable placeholder module for non-real implementations.
+- `modules/network/lora/*` - concrete LoRa module, profiles, regions, runtime state, packet/config types.
 
-### `src/engine/domain/modules/network/lora`
+### `src/shared`
 
-Concrete LoRa / LoRa Mesh-oriented network module.
+Cross-process DTO types.
 
-- `LoRaModule.ts` - creates messages and packets, tracks buffers and radio runtime state, and exposes a send/receive stub.
-- `LoRaTypes.ts` - radio config, mesh config, outbound message, packet, and send result types.
-- `LoRaProfile.ts` - `raw_lora`, `lorawan`, `lora_mesh`.
-- `LoRaRegion.ts` - common regional profiles such as `eu868`, `eu433`, `us915`, `custom`.
-- `LoRaRuntimeState.ts` - radio runtime states such as `sleep`, `standby`, `rx`, `tx`, `connected`, `degraded`, `error`.
-- `index.ts` - barrel export for LoRa.
+- `workspaceSession.ts` - `WorkspaceCommand`, `WorkspaceCommandResult`, command payloads, session events, module template/patch DTOs.
 
-### Electron And UI Domains
+### `src/main`, `src/preload`, `src/renderer`
 
-- `src/main` - Electron main process only; no simulator services, persistence, project management, or backend integration yet.
-- `src/preload` - bridge layer only; custom API is empty.
-- `src/renderer` - React app shell only; no screens, topology canvas, controls, logs, metrics, or forms yet.
+Electron and UI.
+
+- `src/main/index.ts` - app/window setup, creates `WorkspaceSessionManager`, registers IPC, installs menu.
+- `src/main/menu/applicationMenu.ts` - native menu triggers.
+- `src/main/workspace/workspaceIpc.ts` - `workspace:dispatch` handler.
+- `src/preload/index.ts` and `index.d.ts` - safe bridge for workspace dispatch and menu subscriptions.
+- `src/renderer/src/App.tsx` - snapshot-driven composition and menu/shortcut handling.
+- `src/renderer/src/workspace/*` - UI components, dialogs, view types, and legacy pure connection helpers/tests.
+
+## Current UI Behavior
+
+- On startup, renderer dispatches `workspace/create-project` for a default `1000 x 1000` workspace with `10 m/unit`.
+- New Project opens a dialog and dispatches create-project.
+- Add Device dispatches add-device with desired position. Session chooses final free placement.
+- Ctrl+D adds at cursor; menu add uses camera center.
+- Devices can be selected, dragged, copied/pasted, and deleted through session commands.
+- Side panels show devices, possible LoRa links, device details, modules, config, and stats.
+- Possible LoRa links are runtime-derived from snapshot/device/module/position data; no real connection state is persisted.
+- Debug menu can enable logs and show a devices register view in console.
+
+## Important Architecture Rules
+
+- UI should display state and send commands; it should not be the source of simulation/domain truth.
+- Canonical workspace/device/module/endpoint state lives behind `WorkspaceSessionManager` in Electron main.
+- `WorkspaceSession` handles application-level editing commands and returns `WorkspaceCommandResult`.
+- `Workspace` owns low-level placement/domain invariants and atomic updates.
+- `DeviceRegistry` is runtime-only and endpoint-based. Do not reintroduce a single `device -> address` model.
+- Device position is owned by `Workspace`, not `DeviceRegistry` or `DeviceCore`.
+- `DeviceCore` remains transport-agnostic.
+- `LoRaModule` only creates/holds packets and buffers. Delivery belongs to future `WirelessMedium`.
+- `WorkspaceSnapshot` must stay serializable and independent from internal maps/classes.
+
+## Tests
+
+- `tests/device/DeviceCore.test.ts` - device behavior and guards.
+- `tests/device/DeviceFactory.test.ts` - factory defaults and module attachment.
+- `tests/modules/ModuleFactory.test.ts` - LoRa module and stub module creation.
+- `tests/registry/DeviceRegistry.test.ts` - device/module/network endpoint indexes.
+- `tests/spatial/SpatialGrid.test.ts` - spatial index behavior.
+- `tests/workspace/Workspace.test.ts` - atomic workspace + registry/spatial/placement behavior.
+- `tests/workspace/WorkspaceSession.test.ts` - command result envelope, session manager, add/move/delete/module/address/copy/paste/link behavior.
+- `tests/workspace/WorkspaceConnections.test.ts` - renderer pure helper behavior.
+- `tests/types/DeviceSnapshot.test-d.ts` - type-level device snapshot checks.
 
 ## Planned But Not Implemented Yet
 
-The root project docs describe the intended Device Network Simulator / ANTS scope. Treat these as target architecture, not current code.
-
-- Simulation core: `SimulationEngine`, `EventQueue`, virtual simulation time, `Workspace`, `SpatialGrid`, `DeviceRegistry`.
-- Radio environment: `WirelessMedium`, channel model, range checks, latency, packet loss, ACK delivery, collisions/interference later.
-- More modules: sensor, power, compute, storage implementations.
-- Telemetry generation: periodic sensor payloads, noise, deterministic seed, backend-compatible schema.
-- Persistence: SQLite project storage, repositories, import/export JSON.
-- Backend integration: REST client for telemetry ingest, API key/token settings, dry-run mode, retries, integration logs.
-- UI: project screen, workspace/topology view, device palette, inspector, simulation controls, event log, metrics, backend settings, scenario settings.
-- Scenario system: failures, recovery, packet loss spikes, route recalculation, battery degradation, replay/snapshots.
-
-## Design Rules From Docs
-
-- Simulation time should be virtual and event-driven, not based on real timers for simulation logic.
-- `DeviceCore` must remain transport-agnostic and should not contain LoRa, sensor, power, routing, or channel behavior.
-- `LoRaModule` should only build/hold packets; packet delivery belongs to `WirelessMedium`.
-- Telemetry should keep one logical payload contract for real and simulated devices.
-- Device-network flow in the thesis notes: Sensor Node creates JSON telemetry, transport may serialize compactly for network delivery, mesh relays should not alter payload, Gateway deserializes/validates and sends to backend.
-- Project data should eventually support JSON import/export; secrets should not be exported by default.
+- `SimulationSession`, `EventQueue`, `SimulationClock`, virtual time, `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
+- Actual packet delivery, RSSI/SNR/path loss, interference, collisions, routing, telemetry generation.
+- Persistence/save/load/import/export.
+- Real sensor/power/compute/storage modules beyond `StubModule`.
+- Backend integration for telemetry ingest.
 
 ## Gaps And Cautions
 
-- `DeviceCore.getSnapshot()` currently returns `modules: Array.from(this.modules.values())`; despite comments, it does not call `module.getSnapshot()`. Tests currently expect module objects in factory snapshots.
-- `DeviceSnapshot.modules` type is `DeviceModuleSnapshot`, but tests and implementation treat it like an array; this type may need tightening before broader use.
-- `DeviceValidation.ts` defines reusable validation result types, but `DeviceCore.validate()` currently uses an inline compatible shape.
-- `DeviceBuffer.ts` exists but `DeviceCore` still keeps its buffer type inline.
-- `LoRaModule` validation is boolean-only and lifecycle transitions are not restricted by a transition table yet.
-- No LoRa tests are present yet.
-- No SQLite dependency or persistence layer is present in `package.json`.
-- UI is not functional yet; do not infer simulator behavior from renderer code.
+- Several files are in active development and may be untracked/dirty in git; do not revert unrelated user changes.
+- `DeviceCore.getSnapshot()` still returns module objects directly; workspace snapshots use `WorkspaceMappers` instead.
+- `WorkspaceConnections.test.ts` covers legacy renderer helpers; canonical possible links now come from `WorkspaceSession.getSnapshot()`.
+- `assignDeviceLoRaAddress` needs a LoRa-capable module; without a module endpoint target it should fail rather than creating a device-level address.
+- `maxConnections` limits displayed/derived outgoing LoRa candidates, not real network capacity or packet routing.
+- No database or JSON persistence layer exists yet.
 
 ## Useful Docs Outside `ants-app`
 
@@ -149,4 +218,3 @@ Relevant notes in the parent workspace:
 
 - `device-network-simulator-tech-stack-for-codex.md` - target architecture, tech stack, MVP scope, module boundaries, simulation rules.
 - `2.4.4 Поток данных в сети устройств.md` - thesis text for device telemetry flow between Sensor Node, mesh network, Gateway, and backend.
-

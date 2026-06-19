@@ -9,6 +9,8 @@ export type WorkspaceProject = {
 export type WorkspaceModuleKind = 'network' | 'sensor' | 'power' | 'compute' | 'storage'
 
 export type WorkspaceCommunicationProtocol = 'lora'
+export type WorkspaceSpatialGridTechnology = 'lora'
+export type WorkspaceSpatialGridVisibility = Record<WorkspaceSpatialGridTechnology, boolean>
 
 export type WorkspaceCommunicationConfig = {
   protocol: WorkspaceCommunicationProtocol

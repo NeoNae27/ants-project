@@ -15,6 +15,11 @@ export type DebuggingCommand = {
   enabled: boolean
 }
 export type DebuggingCommandCallback = (command: DebuggingCommand) => void
+export type SpatialGridVisibilityCommand = {
+  technology: 'lora'
+  visible: boolean
+}
+export type SpatialGridVisibilityCommandCallback = (command: SpatialGridVisibilityCommand) => void
 
 export type WorkspaceApi = {
   workspace: {
@@ -26,6 +31,7 @@ export type WorkspaceApi = {
     onCopySelectedDevice: (callback: MenuCommandCallback) => MenuCommandCleanup
     onPasteDevice: (callback: PasteDeviceCommandCallback) => MenuCommandCleanup
     onDeleteSelectedDevice: (callback: MenuCommandCallback) => MenuCommandCleanup
+    onSetSpatialGridVisibility: (callback: SpatialGridVisibilityCommandCallback) => MenuCommandCleanup
     onSetDebugging: (callback: DebuggingCommandCallback) => MenuCommandCleanup
     onShowDevicesRegister: (callback: MenuCommandCallback) => MenuCommandCleanup
   }
