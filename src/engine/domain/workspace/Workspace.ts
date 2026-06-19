@@ -1,6 +1,10 @@
 import type { DeviceCore } from '../device/DeviceCore'
 import type { DeviceRole } from '../device/DeviceRole'
+import type { DeviceModule } from '../module'
 import { DeviceRegistry, type DeviceAddress, type DeviceId, type LoRaAddress, type ModuleId } from '../registry'
+import type { NetworkEndpoint } from '../registry'
+import { StubModule, type StubModuleConfig } from '../modules'
+import { LoRaModule, type LoRaModuleConfigPatch } from '../modules/network/lora'
 import { SpatialGrid, type SpatialIndex } from '../spatial'
 import { createWorkspaceDeviceSnapshot, createWorkspaceSnapshot } from './WorkspaceMappers'
 import { WorkspaceError } from './WorkspaceErrors'
@@ -181,38 +185,110 @@ export class Workspace {
     this.assertPlacedDevice(deviceId)
     const targetModuleId = moduleId ?? this.getFirstLoRaModuleId(deviceId)
 
-    this.registry.registerEndpoint({
-      deviceId,
-      moduleId: targetModuleId,
+    this.assignModuleEndpoint(deviceId, targetModuleId, {
       protocol: 'lora',
       address: loraAddress,
     })
   }
 
-  registerDeviceModule(deviceId: DeviceId, moduleId: ModuleId): void {
+  assignModuleEndpoint(
+    deviceId: DeviceId,
+    moduleId: ModuleId,
+    endpoint: Omit<NetworkEndpoint, 'deviceId' | 'moduleId'>,
+  ): void {
     this.assertDeviceId(deviceId)
     this.assertPlacedDevice(deviceId)
+    this.assertDeviceModule(deviceId, moduleId)
 
+    this.registry.registerEndpoint({
+      deviceId,
+      moduleId,
+      ...endpoint,
+    })
+  }
+
+  addModule(deviceId: DeviceId, module: DeviceModule): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
     const device = this.registry.getOrThrow(deviceId)
-    const module = device.getModule(moduleId)
 
-    if (!module) {
-      throw new WorkspaceError('WORKSPACE_MODULE_NOT_FOUND', `Device module not found: ${moduleId}`, {
+    device.addModule(module)
+
+    try {
+      this.registry.registerModule(deviceId, module)
+    } catch (error) {
+      try {
+        device.removeModule(module.id)
+      } catch (rollbackError) {
+        throw new WorkspaceError(
+          'WORKSPACE_OPERATION_ROLLBACK_FAILED',
+          `Failed to rollback module add after registry update failure: ${module.id}`,
+          { deviceId, moduleId: module.id, error, rollbackError },
+        )
+      }
+
+      throw error
+    }
+  }
+
+  removeModule(deviceId: DeviceId, moduleId: ModuleId): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
+    const device = this.registry.getOrThrow(deviceId)
+    const module = this.assertDeviceModule(deviceId, moduleId)
+
+    device.removeModule(moduleId)
+
+    try {
+      this.registry.unregisterModule(moduleId)
+    } catch (error) {
+      try {
+        device.addModule(module)
+      } catch (rollbackError) {
+        throw new WorkspaceError(
+          'WORKSPACE_OPERATION_ROLLBACK_FAILED',
+          `Failed to rollback module remove after registry update failure: ${moduleId}`,
+          { deviceId, moduleId, error, rollbackError },
+        )
+      }
+
+      throw error
+    }
+  }
+
+  updateLoRaModuleConfig(deviceId: DeviceId, moduleId: ModuleId, patch: LoRaModuleConfigPatch): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
+    const module = this.assertDeviceModule(deviceId, moduleId)
+
+    if (!(module instanceof LoRaModule)) {
+      throw new WorkspaceError('WORKSPACE_MODULE_TYPE_INVALID', `Module is not a LoRa module: ${moduleId}`, {
         deviceId,
         moduleId,
       })
     }
 
-    this.registry.registerModule(deviceId, module)
+    module.updateConfig(patch)
+  }
+
+  updateStubModuleConfig(deviceId: DeviceId, moduleId: ModuleId, patch: StubModuleConfig): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
+    const module = this.assertDeviceModule(deviceId, moduleId)
+
+    if (!(module instanceof StubModule)) {
+      throw new WorkspaceError('WORKSPACE_MODULE_TYPE_INVALID', `Module is not a stub module: ${moduleId}`, {
+        deviceId,
+        moduleId,
+      })
+    }
+
+    module.updateConfig(patch)
   }
 
   getRegistryQueries(): DeviceRegistryQueryPort {
     return {
-      get: (deviceId) => this.registry.get(deviceId),
-      getByLoRaAddress: (address) => this.registry.getByAddress(address),
       has: (deviceId) => this.registry.has(deviceId),
-      list: () => this.registry.list(),
-      listByRole: (role) => this.registry.listByRole(role),
       getLoRaAddress: (deviceId, moduleId) => this.registry.getLoRaAddress(deviceId, moduleId),
       getEndpointsByDevice: (deviceId) => this.registry.getEndpointsByDevice(deviceId),
       getEndpointsByModule: (moduleId) => this.registry.getEndpointsByModule(moduleId),
@@ -329,6 +405,26 @@ export class Workspace {
     }
 
     return { ...position }
+  }
+
+  private assertDeviceModule(deviceId: DeviceId, moduleId: ModuleId): DeviceModule {
+    if (!moduleId.trim()) {
+      throw new WorkspaceError('WORKSPACE_MODULE_NOT_FOUND', 'Module id is required', {
+        deviceId,
+        moduleId,
+      })
+    }
+
+    const registeredModule = this.registry.getModule(moduleId)
+
+    if (!registeredModule || registeredModule.deviceId !== deviceId) {
+      throw new WorkspaceError('WORKSPACE_MODULE_NOT_FOUND', `Device module not found: ${moduleId}`, {
+        deviceId,
+        moduleId,
+      })
+    }
+
+    return registeredModule.module
   }
 
   private getFirstLoRaModuleId(deviceId: DeviceId): ModuleId {

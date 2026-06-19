@@ -1,9 +1,8 @@
 import { DeviceFactory } from '../../domain/device/DeviceFactory'
 import { DeviceRole } from '../../domain/device/DeviceRole'
 import type { DeviceModule } from '../../domain/module'
-import { LoRaModule } from '../../domain/modules/network/lora'
+import { LoRaModule, type LoRaModuleConfigPatch } from '../../domain/modules/network/lora'
 import { ModuleFactory } from '../../domain/modules'
-import { StubModule } from '../../domain/modules'
 import { Workspace } from '../../domain/workspace'
 import type {
   WorkspaceConfig,
@@ -266,38 +265,38 @@ export class WorkspaceSession {
 
   addModule(command: AddModuleCommand): WorkspaceSnapshot {
     const workspace = this.getWorkspaceOrThrow()
-    const device = workspace.getRegistryQueries().get(command.deviceId)
-
-    if (!device) {
-      throw new WorkspaceSessionError('WORKSPACE_SESSION_DEVICE_NOT_FOUND', `Device not found: ${command.deviceId}`)
-    }
 
     const module = this.moduleFactory.createModule(command.template, {
       deviceId: command.deviceId,
       loraAddress: workspace.getRegistryQueries().getLoRaAddress(command.deviceId),
     })
 
-    device.addModule(module)
-    workspace.registerDeviceModule(command.deviceId, module.id)
+    workspace.addModule(command.deviceId, module)
 
     return this.getSnapshot()
   }
 
   updateModule(command: UpdateModuleCommand): WorkspaceSnapshot {
     const workspace = this.getWorkspaceOrThrow()
-    const device = workspace.getRegistryQueries().get(command.deviceId)
+    const deviceSnapshot = this.findDeviceSnapshot(command.deviceId)
+    const moduleSnapshot = deviceSnapshot.modules.find((module) => module.id === command.moduleId)
 
-    if (!device) {
-      throw new WorkspaceSessionError('WORKSPACE_SESSION_DEVICE_NOT_FOUND', `Device not found: ${command.deviceId}`)
-    }
-
-    const module = device.getModule(command.moduleId)
-
-    if (!module) {
+    if (!moduleSnapshot) {
       throw new WorkspaceSessionError('WORKSPACE_SESSION_MODULE_NOT_FOUND', `Module not found: ${command.moduleId}`)
     }
 
-    this.applyModulePatch(module, command.patch)
+    if (moduleSnapshot.communication?.protocol === 'lora' && command.patch.communication) {
+      workspace.updateLoRaModuleConfig(
+        command.deviceId,
+        command.moduleId,
+        this.createLoRaConfigPatch(command.patch),
+      )
+    } else if (command.patch.config || command.patch.communication) {
+      workspace.updateStubModuleConfig(command.deviceId, command.moduleId, {
+        ...(command.patch.config ?? {}),
+        ...(command.patch.communication ? { communication: command.patch.communication } : {}),
+      })
+    }
 
     return this.getSnapshot()
   }
@@ -358,49 +357,35 @@ export class WorkspaceSession {
     }
   }
 
-  private applyModulePatch(module: DeviceModule | undefined, patch: WorkspaceModulePatchDto): void {
-    if (!module) {
-      throw new WorkspaceSessionError('WORKSPACE_SESSION_MODULE_NOT_FOUND', 'Module not found')
+  private createLoRaConfigPatch(patch: WorkspaceModulePatchDto): LoRaModuleConfigPatch {
+    const radioPatch: NonNullable<LoRaModuleConfigPatch['radio']> = {}
+
+    if (patch.communication?.bandwidthHz !== undefined) {
+      radioPatch.bandwidthHz = patch.communication.bandwidthHz
     }
 
-    if (module instanceof LoRaModule && patch.communication) {
-      const radioPatch: NonNullable<Parameters<LoRaModule['updateConfig']>[0]['radio']> = {}
-
-      if (patch.communication.bandwidthHz !== undefined) {
-        radioPatch.bandwidthHz = patch.communication.bandwidthHz
-      }
-
-      if (patch.communication.spreadingFactor !== undefined) {
-        radioPatch.spreadingFactor = patch.communication.spreadingFactor
-      }
-
-      if (patch.communication.codingRate !== undefined) {
-        radioPatch.codingRate = patch.communication.codingRate
-      }
-
-      if (patch.communication.txPowerDbm !== undefined) {
-        radioPatch.txPowerDbm = patch.communication.txPowerDbm
-      }
-
-      if (patch.communication.maxRangeMeters !== undefined) {
-        radioPatch.maxRangeMeters = patch.communication.maxRangeMeters
-      }
-
-      if (patch.communication.maxConnections !== undefined) {
-        radioPatch.maxConnections = patch.communication.maxConnections
-      }
-
-      module.updateConfig({
-        radio: radioPatch,
-      })
-      return
+    if (patch.communication?.spreadingFactor !== undefined) {
+      radioPatch.spreadingFactor = patch.communication.spreadingFactor
     }
 
-    if (module instanceof StubModule) {
-      module.updateConfig({
-        ...(patch.config ?? {}),
-        ...(patch.communication ? { communication: patch.communication } : {}),
-      })
+    if (patch.communication?.codingRate !== undefined) {
+      radioPatch.codingRate = patch.communication.codingRate
+    }
+
+    if (patch.communication?.txPowerDbm !== undefined) {
+      radioPatch.txPowerDbm = patch.communication.txPowerDbm
+    }
+
+    if (patch.communication?.maxRangeMeters !== undefined) {
+      radioPatch.maxRangeMeters = patch.communication.maxRangeMeters
+    }
+
+    if (patch.communication?.maxConnections !== undefined) {
+      radioPatch.maxConnections = patch.communication.maxConnections
+    }
+
+    return {
+      radio: radioPatch,
     }
   }
 

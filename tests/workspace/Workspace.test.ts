@@ -3,7 +3,7 @@ import { describe, it } from 'node:test'
 import { DeviceCore } from '../../src/engine/domain/device/DeviceCore'
 import { DeviceRole } from '../../src/engine/domain/device/DeviceRole'
 import { ModuleKind } from '../../src/engine/domain/module'
-import { StubModule } from '../../src/engine/domain/modules'
+import { ModuleFactory, StubModule } from '../../src/engine/domain/modules'
 import type { SpatialIndex, SpatialIndexStats, SpatialSearchResult } from '../../src/engine/domain/spatial'
 import { Workspace, WorkspaceError } from '../../src/engine/domain/workspace'
 import type { WorkspaceConfig, WorkspacePosition } from '../../src/engine/domain/workspace'
@@ -26,6 +26,30 @@ function createLoRaLikeModule(id: string): StubModule {
       maxRangeMeters: 1000,
     },
   })
+}
+
+function createRealLoRaModule(id: string) {
+  return new ModuleFactory().createModule(
+    {
+      kind: 'network',
+      name: 'LoRa network',
+      model: 'SX1276 Stub',
+      communication: {
+        protocol: 'lora',
+        maxRangeMeters: 1000,
+        maxConnections: 8,
+        spreadingFactor: 12,
+        bandwidthHz: 125000,
+        txPowerDbm: 14,
+        codingRate: '4/5',
+        sourceLabel: 'test',
+      },
+    },
+    {
+      id,
+      deviceId: 'node-1',
+    },
+  )
 }
 
 function createDevice(id: string, role = DeviceRole.NODE, modules: StubModule[] = []): DeviceCore {
@@ -292,6 +316,9 @@ describe('Workspace', () => {
     assert.equal('remove' in queries, false)
     assert.equal('registerAddress' in queries, false)
     assert.equal('clear' in queries, false)
+    assert.equal('get' in queries, false)
+    assert.equal('list' in queries, false)
+    assert.equal('listByRole' in queries, false)
     assert.equal(typeof record.getDevice, 'function')
     assert.equal(typeof record.listDevices, 'function')
   })
@@ -305,9 +332,53 @@ describe('Workspace', () => {
     workspace.addDevice(gateway, { x: 20, y: 20 })
     workspace.assignDeviceLoRaAddress('node-1', 'lora-node-1')
 
-    assert.equal(workspace.getRegistryQueries().getByLoRaAddress('lora-node-1'), node)
+    assert.equal(workspace.getDeviceByAddress('lora-node-1'), node)
     assert.equal(workspace.getRegistryQueries().getLoRaAddress('node-1'), 'lora-node-1')
     assert.throws(() => workspace.assignDeviceLoRaAddress('gateway-1', 'lora-node-1'))
+  })
+
+  it('adds and removes modules through workspace domain API and keeps endpoint indexes aligned', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1')
+    const module = createLoRaLikeModule('node-1-lora')
+
+    workspace.addDevice(node, { x: 10, y: 10 })
+    workspace.addModule('node-1', module)
+    workspace.assignModuleEndpoint('node-1', 'node-1-lora', {
+      protocol: 'lora',
+      address: 'lora-node-1',
+    })
+
+    assert.equal(workspace.getSnapshot().devices[0].modules.length, 1)
+    assert.equal(workspace.getRegistryQueries().getLoRaAddress('node-1', 'node-1-lora'), 'lora-node-1')
+
+    workspace.removeModule('node-1', 'node-1-lora')
+
+    assert.equal(workspace.getSnapshot().devices[0].modules.length, 0)
+    assert.equal(workspace.getRegistryQueries().getLoRaAddress('node-1', 'node-1-lora'), undefined)
+    assert.deepEqual(workspace.getRegistryQueries().getEndpointsByDevice('node-1'), [])
+  })
+
+  it('updates LoRa module config through workspace domain API', () => {
+    const workspace = createWorkspace()
+    const node = createDevice('node-1')
+    const module = createRealLoRaModule('node-1-lora')
+
+    workspace.addDevice(node, { x: 10, y: 10 })
+    workspace.addModule('node-1', module)
+    workspace.updateLoRaModuleConfig('node-1', 'node-1-lora', {
+      radio: {
+        spreadingFactor: 7,
+        codingRate: '4/8',
+        maxConnections: 2,
+      },
+    })
+
+    const updatedModule = workspace.getSnapshot().devices[0].modules[0]
+
+    assert.equal(updatedModule.communication?.spreadingFactor, 7)
+    assert.equal(updatedModule.communication?.codingRate, '4/8')
+    assert.equal(updatedModule.communication?.maxConnections, 2)
   })
 
   it('creates serializable snapshots independent from internal maps', () => {
