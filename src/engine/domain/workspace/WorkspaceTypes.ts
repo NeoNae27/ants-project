@@ -28,6 +28,7 @@ export type WorkspaceCommunicationProtocol = 'lora'
 export type WorkspaceCommunicationConfigDto = {
   protocol: WorkspaceCommunicationProtocol
   maxRangeMeters: number
+  maxConnections: number
   spreadingFactor: 7 | 8 | 9 | 10 | 11 | 12
   bandwidthHz: number
   txPowerDbm: number

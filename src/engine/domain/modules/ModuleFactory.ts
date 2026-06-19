@@ -89,6 +89,7 @@ export class ModuleFactory {
           retryLimit: 0,
           timeoutMs: 1_000,
           maxRangeMeters: communication.maxRangeMeters,
+          maxConnections: communication.maxConnections ?? 8,
         },
         mesh: {
           enabled: true,

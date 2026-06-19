@@ -418,6 +418,7 @@ export class LoRaModule implements DeviceModule {
     if (!this.config.radio.codingRate) return false
     if (!this.config.radio.maxPayloadSizeBytes) return false
     if (!this.config.radio.maxRangeMeters) return false
+    if (!this.config.radio.maxConnections) return false
 
     return true
   }

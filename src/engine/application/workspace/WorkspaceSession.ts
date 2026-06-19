@@ -370,6 +370,10 @@ export class WorkspaceSession {
         radioPatch.maxRangeMeters = patch.communication.maxRangeMeters
       }
 
+      if (patch.communication.maxConnections !== undefined) {
+        radioPatch.maxConnections = patch.communication.maxConnections
+      }
+
       module.updateConfig({
         radio: radioPatch,
       })
@@ -397,15 +401,17 @@ export class WorkspaceSession {
         continue
       }
 
-      for (const nearbyDevice of workspace.findNearbyDevices(sourceDevice.id, communication.maxRangeMeters)) {
+      const sourceConnections = workspace
+        .findNearbyDevices(sourceDevice.id, communication.maxRangeMeters)
+        .map((nearbyDevice) => {
         const targetDevice = devicesById.get(nearbyDevice.deviceId)
         const targetModule = targetDevice ? getLoRaModule(targetDevice) : undefined
 
         if (!targetDevice || !targetModule) {
-          continue
+          return undefined
         }
 
-        connections.push({
+        return {
           id: createConnectionId(sourceDevice.id, targetDevice.id, sourceModule.id),
           protocol: 'lora',
           sourceDeviceId: sourceDevice.id,
@@ -416,8 +422,13 @@ export class WorkspaceSession {
           distanceMeters: nearbyDevice.distanceMeters,
           maxRangeMeters: communication.maxRangeMeters,
           sourceLabel: communication.sourceLabel,
+        } satisfies WorkspacePossibleConnection
         })
-      }
+        .filter((connection): connection is WorkspacePossibleConnection => Boolean(connection))
+        .sort((a, b) => a.distanceMeters - b.distanceMeters)
+        .slice(0, Math.max(0, Math.floor(communication.maxConnections ?? 8)))
+
+      connections.push(...sourceConnections)
     }
 
     return connections.sort((a, b) => {

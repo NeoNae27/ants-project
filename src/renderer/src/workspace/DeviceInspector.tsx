@@ -262,6 +262,22 @@ export function DeviceInspector({
                               }
                             />
                           </label>
+
+                          <label className="module-setting-field module-setting-field-wide">
+                            <span>Max links</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="1000"
+                              step="1"
+                              value={module.communication.maxConnections}
+                              onChange={(event) =>
+                                patchModuleCommunication(module, {
+                                  maxConnections: Math.max(0, Math.floor(Number(event.target.value) || 0))
+                                })
+                              }
+                            />
+                          </label>
                         </div>
                       </>
                     ) : null}

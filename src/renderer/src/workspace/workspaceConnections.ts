@@ -63,31 +63,34 @@ export function findPossibleWorkspaceConnections(params: {
       rangeUnits
     )
 
-    for (const nearbyDevice of nearbyDevices) {
-      if (nearbyDevice.deviceId === sourceDevice.id) {
-        continue
-      }
+    connections.push(
+      ...nearbyDevices
+        .filter((nearbyDevice) => nearbyDevice.deviceId !== sourceDevice.id)
+        .map((nearbyDevice) => {
+          const targetDevice = devicesById.get(nearbyDevice.deviceId)
+          const targetModule = targetDevice ? getLoRaModule(targetDevice) : undefined
 
-      const targetDevice = devicesById.get(nearbyDevice.deviceId)
-      const targetModule = targetDevice ? getLoRaModule(targetDevice) : undefined
+          if (!targetDevice || !targetModule) {
+            return undefined
+          }
 
-      if (!targetDevice || !targetModule) {
-        continue
-      }
-
-      connections.push({
-        id: createConnectionId(sourceDevice.id, targetDevice.id, sourceModule.id),
-        protocol: communication.protocol,
-        sourceDeviceId: sourceDevice.id,
-        targetDeviceId: targetDevice.id,
-        sourceModuleId: sourceModule.id,
-        targetModuleId: targetModule.id,
-        distanceUnits: nearbyDevice.distanceUnits,
-        distanceMeters: nearbyDevice.distanceMeters,
-        maxRangeMeters: communication.maxRangeMeters,
-        sourceLabel: communication.sourceLabel
-      })
-    }
+          return {
+            id: createConnectionId(sourceDevice.id, targetDevice.id, sourceModule.id),
+            protocol: communication.protocol,
+            sourceDeviceId: sourceDevice.id,
+            targetDeviceId: targetDevice.id,
+            sourceModuleId: sourceModule.id,
+            targetModuleId: targetModule.id,
+            distanceUnits: nearbyDevice.distanceUnits,
+            distanceMeters: nearbyDevice.distanceMeters,
+            maxRangeMeters: communication.maxRangeMeters,
+            sourceLabel: communication.sourceLabel
+          }
+        })
+        .filter((connection): connection is WorkspacePossibleConnection => Boolean(connection))
+        .sort((a, b) => a.distanceMeters - b.distanceMeters)
+        .slice(0, Math.max(0, Math.floor(communication.maxConnections ?? 8)))
+    )
   }
 
   return connections.sort((a, b) => {

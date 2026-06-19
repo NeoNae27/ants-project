@@ -11,6 +11,7 @@ const loraTemplate = {
   communication: {
     protocol: 'lora' as const,
     maxRangeMeters: 10_000,
+    maxConnections: 8,
     spreadingFactor: 12 as const,
     bandwidthHz: 125_000,
     txPowerDbm: 14,

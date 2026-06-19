@@ -36,6 +36,7 @@ function getCommunicationFromSnapshot(snapshot: Record<string, unknown>): Worksp
   return {
     protocol: 'lora',
     maxRangeMeters: getNumber(radio.maxRangeMeters, 1),
+    maxConnections: getNumber(radio.maxConnections, 8),
     spreadingFactor: getNumber(radio.spreadingFactor, 12) as WorkspaceCommunicationConfigDto['spreadingFactor'],
     bandwidthHz: getNumber(radio.bandwidthHz, 125_000),
     txPowerDbm: getNumber(radio.txPowerDbm, 14),

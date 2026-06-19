@@ -10,6 +10,7 @@ const loraTemplate = {
   communication: {
     protocol: 'lora' as const,
     maxRangeMeters: 10_000,
+    maxConnections: 8,
     spreadingFactor: 12 as const,
     bandwidthHz: 125_000,
     txPowerDbm: 14,
@@ -112,6 +113,7 @@ describe('WorkspaceSession', () => {
           spreadingFactor: 7,
           codingRate: '4/8',
           maxRangeMeters: 50,
+          maxConnections: 1,
         },
       },
     })
@@ -120,6 +122,52 @@ describe('WorkspaceSession', () => {
     assert.equal(updated.snapshot?.devices[0].modules[0].communication?.spreadingFactor, 7)
     assert.equal(updated.snapshot?.devices[0].modules[0].communication?.codingRate, '4/8')
     assert.equal(updated.snapshot?.devices[0].modules[0].communication?.maxRangeMeters, 50)
+    assert.equal(updated.snapshot?.devices[0].modules[0].communication?.maxConnections, 1)
+  })
+
+  it('limits possible LoRa links by maxConnections per source module', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+
+    const limitedTemplate = {
+      ...loraTemplate,
+      communication: {
+        ...loraTemplate.communication,
+        maxConnections: 1,
+      },
+    }
+
+    const source = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 100, y: 100 },
+      modules: [limitedTemplate],
+    })
+
+    assertOk(source)
+    const sourceId = source.snapshot?.devices[0].id
+    assert.ok(sourceId)
+
+    assertOk(
+      session.dispatch({
+        type: 'workspace/add-device',
+        position: { x: 200, y: 100 },
+        modules: [loraTemplate],
+      }),
+    )
+    const snapshot = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 300, y: 100 },
+      modules: [loraTemplate],
+    })
+
+    assertOk(snapshot)
+
+    const sourceLinks = snapshot.snapshot?.possibleConnections.filter(
+      (connection) => connection.sourceDeviceId === sourceId,
+    )
+
+    assert.equal(sourceLinks?.length, 1)
+    assert.equal(sourceLinks?.[0].distanceUnits, 100)
   })
 
   it('adds stub modules for non-LoRa templates', () => {
