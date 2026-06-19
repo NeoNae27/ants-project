@@ -12,6 +12,18 @@ export type SimulationEventType =
 
 export type SimulationEventStatus = 'scheduled' | 'processed'
 
+export const EventPriority = {
+  SYSTEM: 0,
+  DEVICE_STATE: 10,
+  WIRELESS_DELIVERY: 20,
+  TELEMETRY: 30,
+  COMMAND: 40,
+  SCENARIO: 50,
+  LOG: 100
+} as const
+
+export type EventPriorityValue = (typeof EventPriority)[keyof typeof EventPriority]
+
 export type SimulationEventSource = {
   type: 'device' | 'module' | 'wireless_medium' | 'scenario' | 'engine'
   id?: string

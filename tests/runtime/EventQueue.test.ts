@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
+  EventPriority,
   EventQueueError,
   InMemoryEventQueue,
+  type EventPriorityValue,
   type EventQueueErrorCode,
   type ScheduleSimulationEventInput,
   type SimulationEventType
@@ -52,6 +54,20 @@ describe('InMemoryEventQueue', () => {
     assert.deepEqual(
       dueEvents.map((event) => event.id),
       ['priority-first', 'stable-a', 'stable-b', 'later']
+    )
+  })
+
+  it('uses named event priority constants for ordering', () => {
+    const queue = new InMemoryEventQueue()
+    const telemetryPriority: EventPriorityValue = EventPriority.TELEMETRY
+
+    queue.schedule(createInput({ id: 'telemetry', priority: telemetryPriority }))
+    queue.schedule(createInput({ id: 'system', priority: EventPriority.SYSTEM }))
+    queue.schedule(createInput({ id: 'log', priority: EventPriority.LOG }))
+
+    assert.deepEqual(
+      queue.popDueEvents(10).map((event) => event.id),
+      ['system', 'telemetry', 'log']
     )
   })
 

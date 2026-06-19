@@ -1,8 +1,10 @@
 export { EventQueueError } from './EventQueueErrors'
+export { EventPriority } from './EventQueueTypes'
 export { InMemoryEventQueue } from './InMemoryEventQueue'
 export type { EventQueueErrorCode } from './EventQueueErrors'
 export type { EventQueue } from './EventQueue'
 export type {
+  EventPriorityValue,
   EventQueueSnapshot,
   EventQueueSnapshotItem,
   ScheduleSimulationEventInput,
