@@ -10,7 +10,7 @@ export class DeviceDomainError extends Error {
     /**
      * Машиночитаемый код доменной ошибки.
      */
-    public readonly code: string,
+    public readonly code: string
   ) {
     super(message)
     this.name = 'DeviceDomainError'

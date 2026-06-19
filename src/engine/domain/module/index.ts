@@ -1,4 +1,5 @@
 export * from './DeviceModule'
+export * from './BaseModule'
 export * from './ModuleKind'
 export * from './ModuleLifecycleState'
 export * from './ModuleExecutionState'

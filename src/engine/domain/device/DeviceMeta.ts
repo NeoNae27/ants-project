@@ -21,6 +21,8 @@ export type DeviceMeta = {
    * Можно использовать как условные координаты симуляции (x/y),
    * так и географические координаты (lat/lon).
    */
+
+  // QUE: Move to DeviceCore?
   location?: {
     x?: number
     y?: number
