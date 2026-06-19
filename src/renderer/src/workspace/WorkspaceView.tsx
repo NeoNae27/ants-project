@@ -36,6 +36,7 @@ type WorkspaceViewProps = {
   onMoveDevice: (deviceId: string, position: WorkspacePoint) => void
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
+  onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
   onClearSelection: () => void
 }
@@ -111,6 +112,7 @@ export function WorkspaceView({
   onMoveDevice,
   onAddModule,
   onUpdateModule,
+  onRemoveModule,
   onSelectDevice,
   onClearSelection
 }: WorkspaceViewProps): React.JSX.Element {
@@ -606,6 +608,7 @@ export function WorkspaceView({
           device={selectedDevice}
           onAddModule={onAddModule}
           onUpdateModule={onUpdateModule}
+          onRemoveModule={onRemoveModule}
         />
       </div>
 

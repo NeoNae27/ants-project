@@ -257,6 +257,18 @@ function App(): React.JSX.Element {
     [debugLog, dispatchWorkspaceCommand]
   )
 
+  const removeDeviceModule = useCallback(
+    (deviceId: string, moduleId: string) => {
+      debugLog('Module remove requested', { deviceId, moduleId })
+      void dispatchWorkspaceCommand({
+        type: 'workspace/remove-module',
+        deviceId,
+        moduleId
+      })
+    },
+    [debugLog, dispatchWorkspaceCommand]
+  )
+
   const copySelectedDevice = useCallback(() => {
     if (!selectedDeviceId) {
       debugLog('No selected device to copy')
@@ -440,6 +452,7 @@ function App(): React.JSX.Element {
         onMoveDevice={moveDevice}
         onAddModule={addModuleToDevice}
         onUpdateModule={updateDeviceModule}
+        onRemoveModule={removeDeviceModule}
         onSelectDevice={selectDevice}
         onClearSelection={() => setSelectedDeviceId(null)}
       />

@@ -196,6 +196,33 @@ describe('WorkspaceSession', () => {
     assert.equal(addedModule.snapshot?.devices[0].modules[0].kind, 'sensor')
   })
 
+  it('removes modules through Workspace', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+    const addedDevice = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 100, y: 100 },
+      modules: [loraTemplate],
+    })
+
+    assertOk(addedDevice)
+    const deviceId = addedDevice.snapshot?.devices[0].id
+    const moduleId = addedDevice.snapshot?.devices[0].modules[0].id
+    assert.ok(deviceId)
+    assert.ok(moduleId)
+
+    const removedModule = session.dispatch({
+      type: 'workspace/remove-module',
+      deviceId,
+      moduleId,
+    })
+
+    assertOk(removedModule)
+    assert.equal(removedModule.snapshot?.devices[0].modules.length, 0)
+    assert.equal(removedModule.snapshot?.possibleConnections.length, 0)
+    assert.equal(removedModule.events[0].type, 'workspace.module.removed')
+  })
+
   it('assigns LoRa addresses and rejects duplicates', () => {
     const session = new WorkspaceSession()
     createProject(session)

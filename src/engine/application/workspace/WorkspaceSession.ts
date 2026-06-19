@@ -21,6 +21,7 @@ import type {
   DeleteDeviceCommand,
   MoveDeviceCommand,
   PasteDeviceCommand,
+  RemoveModuleCommand,
   UpdateModuleCommand,
   WorkspaceCommand,
   WorkspaceCommandResult,
@@ -150,6 +151,13 @@ export class WorkspaceSession {
         case 'workspace/update-module':
           return this.withSnapshot(this.updateModule(command), [
             this.createEvent('workspace.module.updated', {
+              deviceId: command.deviceId,
+              moduleId: command.moduleId,
+            }),
+          ])
+        case 'workspace/remove-module':
+          return this.withSnapshot(this.removeModule(command), [
+            this.createEvent('workspace.module.removed', {
               deviceId: command.deviceId,
               moduleId: command.moduleId,
             }),
@@ -298,6 +306,11 @@ export class WorkspaceSession {
       })
     }
 
+    return this.getSnapshot()
+  }
+
+  removeModule(command: RemoveModuleCommand): WorkspaceSnapshot {
+    this.getWorkspaceOrThrow().removeModule(command.deviceId, command.moduleId)
     return this.getSnapshot()
   }
 

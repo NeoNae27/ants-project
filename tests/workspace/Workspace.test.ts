@@ -356,6 +356,8 @@ describe('Workspace', () => {
 
     assert.equal(workspace.getSnapshot().devices[0].modules.length, 0)
     assert.equal(workspace.getRegistryQueries().getLoRaAddress('node-1', 'node-1-lora'), undefined)
+    assert.equal(workspace.getDeviceByAddress('lora-node-1'), undefined)
+    assert.deepEqual(workspace.getRegistryQueries().getEndpointsByModule('node-1-lora'), [])
     assert.deepEqual(workspace.getRegistryQueries().getEndpointsByDevice('node-1'), [])
   })
 

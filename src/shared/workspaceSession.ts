@@ -62,6 +62,12 @@ export type UpdateModuleCommand = {
   patch: WorkspaceModulePatchDto
 }
 
+export type RemoveModuleCommand = {
+  type: 'workspace/remove-module'
+  deviceId: string
+  moduleId: string
+}
+
 export type AssignDeviceLoRaAddressCommand = {
   type: 'workspace/assign-device-lora-address'
   deviceId: string
@@ -94,6 +100,7 @@ export type WorkspaceCommand =
   | DeleteDeviceCommand
   | AddModuleCommand
   | UpdateModuleCommand
+  | RemoveModuleCommand
   | AssignDeviceLoRaAddressCommand
   | CopyDeviceCommand
   | PasteDeviceCommand
