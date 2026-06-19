@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import type { WorkspaceCommand, WorkspaceCommandResult } from '../shared/workspaceSession'
 
 type MenuCommandCallback = () => void
 type AddDeviceCommand = {
@@ -10,8 +11,17 @@ type PasteDeviceCommand = {
   placement: 'center' | 'cursor'
 }
 type PasteDeviceCommandCallback = (command: PasteDeviceCommand) => void
+type DebuggingCommand = {
+  enabled: boolean
+}
+type DebuggingCommandCallback = (command: DebuggingCommand) => void
 
 const api = {
+  workspace: {
+    dispatch(command: WorkspaceCommand): Promise<WorkspaceCommandResult> {
+      return ipcRenderer.invoke('workspace:dispatch', command)
+    }
+  },
   menu: {
     onNewProject(callback: MenuCommandCallback) {
       ipcRenderer.on('menu:new-project', callback)
@@ -40,6 +50,18 @@ const api = {
     onDeleteSelectedDevice(callback: MenuCommandCallback) {
       ipcRenderer.on('menu:delete-selected-device', callback)
       return () => ipcRenderer.removeListener('menu:delete-selected-device', callback)
+    },
+    onSetDebugging(callback: DebuggingCommandCallback) {
+      const listener = (_event: IpcRendererEvent, command?: DebuggingCommand) => {
+        callback(command ?? { enabled: false })
+      }
+
+      ipcRenderer.on('menu:set-debugging', listener)
+      return () => ipcRenderer.removeListener('menu:set-debugging', listener)
+    },
+    onShowDevicesRegister(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:show-devices-register', callback)
+      return () => ipcRenderer.removeListener('menu:show-devices-register', callback)
     }
   }
 }

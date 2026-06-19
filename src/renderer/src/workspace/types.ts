@@ -25,7 +25,7 @@ export type WorkspaceModule = {
   kind: WorkspaceModuleKind
   name: string
   model: string
-  status: 'new'
+  status: string
   communication?: WorkspaceCommunicationConfig
 }
 
@@ -34,8 +34,8 @@ export type WorkspaceDevice = {
   name: string
   model: string
   role: 'node' | 'repeater' | 'gateway'
-  status: 'new' | 'active' | 'sleep' | 'fault'
-  executionState: 'idle' | 'running' | 'paused' | 'stopped'
+  status: string
+  executionState: string
   config: {
     heartbeatIntervalMs: number
     transmissionIntervalMs: number

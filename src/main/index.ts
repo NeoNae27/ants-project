@@ -3,6 +3,8 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { createApplicationMenu } from './menu/applicationMenu'
+import { WorkspaceSessionManager } from '../engine/application/workspace'
+import { registerWorkspaceIpc } from './workspace/workspaceIpc'
 
 const DEFAULT_WINDOW_WIDTH = 1280
 const DEFAULT_WINDOW_HEIGHT = 720
@@ -56,6 +58,8 @@ app.whenReady().then(() => {
   })
 
   const mainWindow = createWindow()
+  const workspaceSessionManager = new WorkspaceSessionManager()
+  registerWorkspaceIpc(workspaceSessionManager)
   createApplicationMenu(mainWindow)
 
   app.on('activate', function () {

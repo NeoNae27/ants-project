@@ -8,12 +8,18 @@ type PasteDeviceCommand = {
   placement: 'center' | 'cursor'
 }
 
+type DebuggingCommand = {
+  enabled: boolean
+}
+
 const menuChannels = {
   newProject: 'menu:new-project',
   addDevice: 'menu:add-device',
   copySelectedDevice: 'menu:copy-selected-device',
   pasteDevice: 'menu:paste-device',
-  deleteSelectedDevice: 'menu:delete-selected-device'
+  deleteSelectedDevice: 'menu:delete-selected-device',
+  setDebugging: 'menu:set-debugging',
+  showDevicesRegister: 'menu:show-devices-register'
 } as const
 
 function sendMenuCommand(window: BrowserWindow, channel: string, payload?: unknown): void {
@@ -77,6 +83,29 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
           label: 'Delete Selected Device',
           accelerator: 'Delete',
           click: () => sendMenuCommand(mainWindow, menuChannels.deleteSelectedDevice)
+        }
+      ]
+    },
+    {
+      label: 'Debug',
+      submenu: [
+        {
+          label: 'Debugging',
+          type: 'checkbox',
+          accelerator: 'CmdOrCtrl+Shift+B',
+          checked: false,
+          click: (menuItem) => {
+            const command: DebuggingCommand = {
+              enabled: menuItem.checked
+            }
+
+            sendMenuCommand(mainWindow, menuChannels.setDebugging, command)
+          }
+        },
+        {
+          label: 'Show devices register',
+          accelerator: 'CmdOrCtrl+Shift+R',
+          click: () => sendMenuCommand(mainWindow, menuChannels.showDevicesRegister)
         }
       ]
     }

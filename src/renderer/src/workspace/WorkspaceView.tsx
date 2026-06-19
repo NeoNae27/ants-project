@@ -6,13 +6,13 @@ import type {
   WorkspaceConnectionViewMode,
   WorkspaceDevice,
   WorkspaceModule,
+  WorkspacePossibleConnection,
   WorkspacePoint,
   WorkspaceProject
 } from './types'
 import {
   createWorkspaceConnectionLines,
-  filterConnectionsForMode,
-  findPossibleWorkspaceConnections
+  filterConnectionsForMode
 } from './workspaceConnections'
 
 type WorkspaceViewProps = {
@@ -20,6 +20,7 @@ type WorkspaceViewProps = {
   devices: WorkspaceDevice[]
   selectedDeviceId: string | null
   selectedDevice: WorkspaceDevice | null
+  possibleConnections: WorkspacePossibleConnection[]
   addDeviceRequest: {
     id: number
     placement: AddDevicePlacement
@@ -99,6 +100,7 @@ export function WorkspaceView({
   devices,
   selectedDeviceId,
   selectedDevice,
+  possibleConnections,
   addDeviceRequest,
   pasteDeviceRequest,
   onAddDeviceAt,
@@ -159,14 +161,6 @@ export function WorkspaceView({
 
   const scale = fitScale * viewTransform.zoom
   const zoomPercent = Math.round(viewTransform.zoom * 100)
-  const possibleConnections = useMemo(
-    () =>
-      findPossibleWorkspaceConnections({
-        project,
-        devices
-      }),
-    [devices, project]
-  )
   const visibleConnections = useMemo(
     () =>
       filterConnectionsForMode({

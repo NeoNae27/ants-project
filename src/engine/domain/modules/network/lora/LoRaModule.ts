@@ -7,6 +7,7 @@ import { ModuleDomainError } from '../../../module/ModuleErrors'
 import { LoRaRuntimeState } from './LoRaRuntimeState'
 import type {
   LoRaModuleConfig,
+  LoRaModuleConfigPatch,
   LoRaOutboundMessage,
   LoRaPacket,
   LoRaSendResult,
@@ -123,7 +124,7 @@ export class LoRaModule implements DeviceModule {
   /**
    * Частично обновляет конфигурацию LoRa-модуля.
    */
-  updateConfig(patch: Partial<LoRaModuleConfig>): void {
+  updateConfig(patch: LoRaModuleConfigPatch): void {
     this.config = {
       ...this.config,
       ...patch,

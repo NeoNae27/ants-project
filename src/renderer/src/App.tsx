@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { WorkspaceSnapshot } from '../../engine/domain/workspace'
+import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
 import type {
@@ -8,23 +10,13 @@ import type {
   WorkspacePoint,
   WorkspaceProject
 } from './workspace/types'
-import {
-  cloneWorkspaceDevice,
-  createDefaultProject,
-  createWorkspaceDevice,
-  createWorkspaceProject,
-  findFreeDevicePosition
-} from './workspace/workspaceUtils'
 
-function copyDeviceSnapshot(device: WorkspaceDevice): WorkspaceDevice {
-  return {
-    ...device,
-    config: { ...device.config },
-    modules: device.modules.map((module) => ({
-      ...module,
-      communication: module.communication ? { ...module.communication } : undefined
-    }))
-  }
+const DEFAULT_PROJECT: WorkspaceProject = {
+  id: 'pending-project',
+  name: 'New project',
+  width: 1000,
+  height: 1000,
+  unitScaleMeters: 10
 }
 
 function isEditableShortcutTarget(target: EventTarget | null): boolean {
@@ -37,11 +29,82 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   )
 }
 
+function snapshotToProject(snapshot: WorkspaceSnapshot | null): WorkspaceProject {
+  if (!snapshot) {
+    return DEFAULT_PROJECT
+  }
+
+  return {
+    id: snapshot.id,
+    name: snapshot.name,
+    width: snapshot.width,
+    height: snapshot.height,
+    unitScaleMeters: snapshot.metersPerUnit
+  }
+}
+
+function snapshotToDevices(snapshot: WorkspaceSnapshot | null): WorkspaceDevice[] {
+  if (!snapshot) {
+    return []
+  }
+
+  return snapshot.devices.map((device) => ({
+    id: device.id,
+    name: device.info.name ?? device.id,
+    model: device.info.model,
+    role: device.info.role,
+    status: device.info.lifecycleState,
+    executionState: device.info.executionState,
+    config: {
+      heartbeatIntervalMs: device.config.heartbeatIntervalMs,
+      transmissionIntervalMs: device.config.transmissionIntervalMs,
+      maxRetries: device.config.maxRetries,
+      powerMode: device.config.powerMode
+    },
+    modules: device.modules.map((module) => ({
+      id: module.id,
+      kind: module.kind,
+      name: module.name,
+      model: module.model,
+      status: module.lifecycleState,
+      communication: module.communication ? { ...module.communication } : undefined
+    })),
+    bufferSize: device.info.bufferSize,
+    x: device.position.x,
+    y: device.position.y
+  }))
+}
+
+function moduleToTemplate(module: WorkspaceModule) {
+  return {
+    kind: module.kind,
+    name: module.name,
+    model: module.model,
+    communication: module.communication ? { ...module.communication } : undefined
+  }
+}
+
+function createDevicesRegisterView(devices: WorkspaceDevice[]): Array<Record<string, string | number>> {
+  return devices.map((device) => ({
+    id: device.id,
+    name: device.name,
+    model: device.model,
+    role: device.role,
+    status: device.status,
+    state: device.executionState,
+    x: device.x,
+    y: device.y,
+    modules: device.modules.length,
+    lora:
+      device.modules.find((module) => module.communication?.protocol === 'lora')?.communication
+        ?.sourceLabel ?? 'none'
+  }))
+}
+
 function App(): React.JSX.Element {
-  const [project, setProject] = useState<WorkspaceProject>(() => createDefaultProject())
-  const [devices, setDevices] = useState<WorkspaceDevice[]>([])
+  const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
-  const [copiedDevice, setCopiedDevice] = useState<WorkspaceDevice | null>(null)
+  const [debugEnabled, setDebugEnabled] = useState(false)
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false)
   const [addDeviceRequest, setAddDeviceRequest] = useState<{
     id: number
@@ -58,9 +121,70 @@ function App(): React.JSX.Element {
     placement: 'center'
   })
 
+  const project = useMemo(() => snapshotToProject(snapshot), [snapshot])
+  const devices = useMemo(() => snapshotToDevices(snapshot), [snapshot])
   const selectedDevice = useMemo(
     () => devices.find((device) => device.id === selectedDeviceId) ?? null,
     [devices, selectedDeviceId]
+  )
+
+  const debugLog = useCallback(
+    (message: string, payload?: unknown) => {
+      if (!debugEnabled) {
+        return
+      }
+
+      if (payload === undefined) {
+        console.info(`[Debug] ${message}`)
+        return
+      }
+
+      console.info(`[Debug] ${message}`, payload)
+    },
+    [debugEnabled]
+  )
+
+  const applyWorkspaceResult = useCallback(
+    (result: WorkspaceCommandResult, options?: { selectNewDevice?: boolean }) => {
+      if (!result.ok) {
+        console.error('[Workspace] Command failed', result.error)
+        return
+      }
+
+      if (result.events.length > 0) {
+        debugLog('Workspace events', result.events)
+      }
+
+      if (!result.snapshot) {
+        return
+      }
+
+      setSnapshot((currentSnapshot) => {
+        if (options?.selectNewDevice) {
+          const previousIds = new Set(currentSnapshot?.devices.map((device) => device.id) ?? [])
+          const createdDevice = result.snapshot?.devices.find((device) => !previousIds.has(device.id))
+
+          if (createdDevice) {
+            setSelectedDeviceId(createdDevice.id)
+          }
+        }
+
+        return result.snapshot ?? currentSnapshot
+      })
+    },
+    [debugLog]
+  )
+
+  const dispatchWorkspaceCommand = useCallback(
+    async (
+      command: Parameters<typeof window.api.workspace.dispatch>[0],
+      options?: { selectNewDevice?: boolean }
+    ) => {
+      const result = await window.api.workspace.dispatch(command)
+      applyWorkspaceResult(result, options)
+      return result
+    },
+    [applyWorkspaceResult]
   )
 
   const requestAddDevice = useCallback((placement: AddDevicePlacement) => {
@@ -79,129 +203,151 @@ function App(): React.JSX.Element {
 
   const addDeviceAt = useCallback(
     (position: WorkspacePoint) => {
-      setDevices((currentDevices) => {
-        const device = createWorkspaceDevice(project, currentDevices.length, currentDevices, position)
-        console.info('[Workspace] Device created:', device)
-        return [...currentDevices, device]
-      })
+      void dispatchWorkspaceCommand(
+        {
+          type: 'workspace/add-device',
+          position
+        },
+        { selectNewDevice: true }
+      )
     },
-    [project]
+    [dispatchWorkspaceCommand]
   )
 
   const moveDevice = useCallback(
     (deviceId: string, position: WorkspacePoint) => {
-      setDevices((currentDevices) => {
-        const nextPosition = findFreeDevicePosition({
-          project,
-          devices: currentDevices,
-          desiredPosition: position,
-          excludedDeviceId: deviceId
-        })
-
-        return currentDevices.map((device) =>
-          device.id === deviceId
-            ? {
-                ...device,
-                x: nextPosition.x,
-                y: nextPosition.y
-              }
-            : device
-        )
+      void dispatchWorkspaceCommand({
+        type: 'workspace/move-device',
+        deviceId,
+        position
       })
     },
-    [project]
+    [dispatchWorkspaceCommand]
   )
 
-  const addModuleToDevice = useCallback((deviceId: string, module: WorkspaceModule) => {
-    setDevices((currentDevices) =>
-      currentDevices.map((device) =>
-        device.id === deviceId
-          ? {
-              ...device,
-              modules: [...device.modules, module]
-            }
-          : device
-      )
-    )
-  }, [])
+  const addModuleToDevice = useCallback(
+    (deviceId: string, module: WorkspaceModule) => {
+      debugLog('Module add requested', { deviceId, module })
+      void dispatchWorkspaceCommand({
+        type: 'workspace/add-module',
+        deviceId,
+        template: moduleToTemplate(module)
+      })
+    },
+    [debugLog, dispatchWorkspaceCommand]
+  )
 
   const updateDeviceModule = useCallback(
     (deviceId: string, moduleId: string, nextModule: WorkspaceModule) => {
-      setDevices((currentDevices) =>
-        currentDevices.map((device) =>
-          device.id === deviceId
-            ? {
-                ...device,
-                modules: device.modules.map((module) =>
-                  module.id === moduleId ? nextModule : module
-                )
-              }
-            : device
-        )
-      )
+      debugLog('Module update requested', { deviceId, moduleId, module: nextModule })
+      void dispatchWorkspaceCommand({
+        type: 'workspace/update-module',
+        deviceId,
+        moduleId,
+        patch: {
+          communication: nextModule.communication ? { ...nextModule.communication } : undefined
+        }
+      })
     },
-    []
+    [debugLog, dispatchWorkspaceCommand]
   )
 
   const copySelectedDevice = useCallback(() => {
-    if (!selectedDevice) {
-      console.info('[Workspace] No selected device to copy')
+    if (!selectedDeviceId) {
+      debugLog('No selected device to copy')
       return
     }
 
-    setCopiedDevice(copyDeviceSnapshot(selectedDevice))
-    console.info('[Workspace] Device copied:', selectedDevice)
-  }, [selectedDevice])
+    void dispatchWorkspaceCommand({
+      type: 'workspace/copy-device',
+      deviceId: selectedDeviceId
+    })
+  }, [debugLog, dispatchWorkspaceCommand, selectedDeviceId])
 
   const pasteCopiedDeviceAt = useCallback(
     (position: WorkspacePoint) => {
-      if (!copiedDevice) {
-        console.info('[Workspace] No copied device to paste')
-        return
-      }
-
-      setDevices((currentDevices) => {
-        const device = cloneWorkspaceDevice({
-          project,
-          sourceDevice: copiedDevice,
-          deviceIndex: currentDevices.length,
-          devices: currentDevices,
-          desiredPosition: position
-        })
-
-        setSelectedDeviceId(device.id)
-        console.info('[Workspace] Device pasted:', device)
-
-        return [...currentDevices, device]
-      })
+      void dispatchWorkspaceCommand(
+        {
+          type: 'workspace/paste-device',
+          position
+        },
+        { selectNewDevice: true }
+      )
     },
-    [copiedDevice, project]
+    [dispatchWorkspaceCommand]
   )
 
   const deleteSelectedDevice = useCallback(() => {
-    setDevices((currentDevices) => {
-      if (!selectedDeviceId) {
-        console.info('[Workspace] No selected device to delete')
-        return currentDevices
-      }
+    if (!selectedDeviceId) {
+      debugLog('No selected device to delete')
+      return
+    }
 
-      return currentDevices.filter((device) => device.id !== selectedDeviceId)
+    void dispatchWorkspaceCommand({
+      type: 'workspace/delete-device',
+      deviceId: selectedDeviceId
     })
     setSelectedDeviceId(null)
-  }, [selectedDeviceId])
+  }, [debugLog, dispatchWorkspaceCommand, selectedDeviceId])
 
-  const createProject = useCallback((nextProject: WorkspaceProject) => {
-    setProject(nextProject)
-    setDevices([])
-    setSelectedDeviceId(null)
-    setCopiedDevice(null)
-    setIsNewProjectDialogOpen(false)
-    console.info('[Workspace] Project created:', nextProject)
-  }, [])
+  const createProject = useCallback(
+    (values: { name: string; width: number; height: number }) => {
+      setSelectedDeviceId(null)
+      setIsNewProjectDialogOpen(false)
+      void dispatchWorkspaceCommand({
+        type: 'workspace/create-project',
+        name: values.name,
+        width: values.width,
+        height: values.height
+      })
+    },
+    [dispatchWorkspaceCommand]
+  )
 
-  const selectDevice = useCallback((device: WorkspaceDevice) => {
-    setSelectedDeviceId(device.id)
-    console.info('[Workspace] Device selected:', device)
+  const selectDevice = useCallback(
+    (device: WorkspaceDevice) => {
+      setSelectedDeviceId(device.id)
+      debugLog('Device selected', device)
+    },
+    [debugLog]
+  )
+
+  const showDevicesRegister = useCallback(() => {
+    const registerView = createDevicesRegisterView(devices)
+    const roleIndex = devices.reduce<Record<string, string[]>>((index, device) => {
+      index[device.role] = [...(index[device.role] ?? []), device.id]
+      return index
+    }, {})
+
+    console.groupCollapsed('[Debug] Devices register')
+    console.info('Project:', project)
+    console.info('Device count:', devices.length)
+    console.info('Role index:', roleIndex)
+    console.table(registerView)
+    console.info('Snapshot:', snapshot)
+    console.groupEnd()
+  }, [devices, project, snapshot])
+
+  useEffect(() => {
+    let isMounted = true
+
+    void window.api.workspace
+      .dispatch({
+        type: 'workspace/create-project',
+        name: DEFAULT_PROJECT.name,
+        width: DEFAULT_PROJECT.width,
+        height: DEFAULT_PROJECT.height,
+        metersPerUnit: DEFAULT_PROJECT.unitScaleMeters
+      })
+      .then((result) => {
+        if (isMounted) {
+          applyWorkspaceResult(result)
+        }
+      })
+
+    return () => {
+      isMounted = false
+    }
   }, [])
 
   useEffect(() => {
@@ -214,6 +360,11 @@ function App(): React.JSX.Element {
       requestPasteDevice(command.placement)
     )
     const cleanupDeleteSelectedDevice = window.api.menu.onDeleteSelectedDevice(deleteSelectedDevice)
+    const cleanupSetDebugging = window.api.menu.onSetDebugging((command) => {
+      setDebugEnabled(command.enabled)
+      console.info(`[Debug] Debugging ${command.enabled ? 'enabled' : 'disabled'}`)
+    })
+    const cleanupShowDevicesRegister = window.api.menu.onShowDevicesRegister(showDevicesRegister)
 
     return () => {
       cleanupNewProject()
@@ -221,8 +372,16 @@ function App(): React.JSX.Element {
       cleanupCopySelectedDevice()
       cleanupPasteDevice()
       cleanupDeleteSelectedDevice()
+      cleanupSetDebugging()
+      cleanupShowDevicesRegister()
     }
-  }, [copySelectedDevice, requestAddDevice, requestPasteDevice, deleteSelectedDevice])
+  }, [
+    copySelectedDevice,
+    requestAddDevice,
+    requestPasteDevice,
+    deleteSelectedDevice,
+    showDevicesRegister
+  ])
 
   useEffect(() => {
     function handleWorkspaceShortcuts(event: KeyboardEvent): void {
@@ -260,6 +419,7 @@ function App(): React.JSX.Element {
         devices={devices}
         selectedDeviceId={selectedDeviceId}
         selectedDevice={selectedDevice}
+        possibleConnections={snapshot?.possibleConnections ?? []}
         addDeviceRequest={addDeviceRequest}
         pasteDeviceRequest={pasteDeviceRequest}
         onAddDeviceAt={addDeviceAt}
@@ -275,9 +435,7 @@ function App(): React.JSX.Element {
         <NewProjectDialog
           initialProject={project}
           onCancel={() => setIsNewProjectDialogOpen(false)}
-          onCreate={(values) =>
-            createProject(createWorkspaceProject(values.name, values.width, values.height))
-          }
+          onCreate={createProject}
         />
       ) : null}
     </main>

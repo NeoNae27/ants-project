@@ -141,6 +141,11 @@ export type LoRaModuleConfig = {
   mesh?: LoRaMeshOptions
 }
 
+export type LoRaModuleConfigPatch = {
+  radio?: Partial<LoRaRadioConfig>
+  mesh?: Partial<LoRaMeshOptions>
+}
+
 /**
  * Исходящее сообщение LoRa-модуля.
  *
