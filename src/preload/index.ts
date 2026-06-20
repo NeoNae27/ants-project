@@ -99,6 +99,10 @@ const api = {
       ipcRenderer.on('menu:show-spatial-index', callback)
       return () => ipcRenderer.removeListener('menu:show-spatial-index', callback)
     },
+    onShowEventDispatchDebug(callback: MenuCommandCallback) {
+      ipcRenderer.on('menu:show-event-dispatch-debug', callback)
+      return () => ipcRenderer.removeListener('menu:show-event-dispatch-debug', callback)
+    },
     onSimulationCommand(callback: SimulationMenuCommandCallback) {
       const listener = (_event: IpcRendererEvent, command?: SimulationMenuCommand) => {
         if (!command) {

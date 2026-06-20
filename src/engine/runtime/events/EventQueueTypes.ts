@@ -1,4 +1,4 @@
-export type SimulationEventType =
+export type CoreSimulationEventType =
   | 'wireless.packet_delivery'
   | 'wireless.packet_lost'
   | 'device.telemetry_sample'
@@ -9,6 +9,15 @@ export type SimulationEventType =
   | 'command.timeout'
   | 'ack.timeout'
   | 'scenario.step'
+
+export type FeatureSimulationEventType = `${string}.${string}`
+
+export type DemoSimulationEventType = `demo.${string}`
+
+export type SimulationEventType =
+  | CoreSimulationEventType
+  | FeatureSimulationEventType
+  | DemoSimulationEventType
 
 export type SimulationEventStatus = 'scheduled' | 'processed'
 

@@ -36,6 +36,7 @@ const menuChannels = {
   setDebugging: 'menu:set-debugging',
   showDevicesRegister: 'menu:show-devices-register',
   showSpatialIndex: 'menu:show-spatial-index',
+  showEventDispatchDebug: 'menu:show-event-dispatch-debug',
   simulationCommand: 'menu:simulation-command'
 } as const
 
@@ -242,6 +243,11 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
           label: 'Show spatial index',
           accelerator: 'CmdOrCtrl+Shift+I',
           click: () => sendMenuCommand(mainWindow, menuChannels.showSpatialIndex)
+        },
+        {
+          label: 'Show event queue and dispatch',
+          accelerator: 'CmdOrCtrl+Shift+E',
+          click: () => sendMenuCommand(mainWindow, menuChannels.showEventDispatchDebug)
         }
       ]
     }

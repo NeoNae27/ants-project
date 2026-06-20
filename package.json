@@ -19,6 +19,7 @@
     "test:workspace-session": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/workspace/WorkspaceSession.test.js",
     "test:workspace-connections": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/workspace/WorkspaceConnections.test.js",
     "test:event-queue": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/EventQueue.test.js",
+    "test:event-dispatcher": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/EventDispatcher.test.js",
     "test:simulation-clock": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/SimulationClock.test.js",
     "test:types": "tsc -p tsconfig.type-tests.json",
     "start": "node scripts/electron-vite.cjs preview",

@@ -5,7 +5,7 @@
 - Project root: `C:\Users\nikit\Documents\Master Degree Project\ants-app`
 - Updated: `2026-06-20`
 - App: desktop simulator for ANTS / Device Network Simulator.
-- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace session layer, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
+- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace/session layer, standalone simulation clock/event queue primitives, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
 
 ## Stack And Commands
 
@@ -28,6 +28,8 @@ Common commands from `package.json`:
 - `npm run test:workspace` - engine `Workspace` tests.
 - `npm run test:workspace-session` - `WorkspaceSession` and `WorkspaceSessionManager` tests.
 - `npm run test:workspace-connections` - renderer-level pure connection helpers.
+- `npm run test:event-queue` - runtime `EventQueue` tests.
+- `npm run test:simulation-clock` - runtime `SimulationClock` and simulation session manager tests.
 - `npm run test:types` - type-level tests.
 
 ## What Is Ready
@@ -36,13 +38,16 @@ Common commands from `package.json`:
   - `src/main/index.ts` creates a `1280x720` window.
   - `src/main/menu/applicationMenu.ts` defines native menu commands: project/workspace/edit/view/debug actions.
   - `src/main/workspace/workspaceIpc.ts` registers `workspace:dispatch`.
-  - `src/preload/index.ts` exposes `window.api.workspace.dispatch(command)` plus menu event subscriptions.
+  - `src/main/simulation/simulationIpc.ts` registers `simulation:dispatch`.
+  - `src/preload/index.ts` exposes `window.api.workspace.dispatch(command)`, `window.api.simulation.dispatch(command)`, plus menu event subscriptions.
+  - Simulation menu supports start/pause/stop/reset, speed x1/x5/x10, advance +1s, and clock snapshot debug output.
 
 - UI workspace:
   - `src/renderer/src/App.tsx` no longer owns the canonical device list. It holds presentation state plus the latest `WorkspaceSnapshot`.
   - Mutating UI actions dispatch `WorkspaceCommand` through IPC and apply `WorkspaceCommandResult`.
   - Renderer presentation state still includes selected device id, camera/zoom/pan, dialogs, cursor placement, collapsible side panels, and debug toggles.
   - `WorkspaceView.tsx` renders left navigator, central dotted workspace, device drag, zoom/pan, possible links, right inspector, and bottom status bar.
+  - Bottom status bar shows workspace size, unit scale, zoom, visible link count, and simulation clock state/time/speed.
   - View menu can toggle a LoRa spatial-grid overlay on the workspace.
   - `DeviceInspector.tsx` can add modules, remove modules, and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
 
@@ -52,9 +57,18 @@ Common commands from `package.json`:
   - `src/engine/application/workspace/WorkspaceSession.ts` is the application/controller layer for editing a project.
   - `WorkspaceSession` implements create project, add/move/delete device, add/update/remove module, assign LoRa endpoint address, copy/paste, validate, get snapshot, and get spatial-index debug data.
   - `WorkspacePlacementService` handles UX placement rules: free position near desired point, paste offsets/collision avoidance.
+  - `src/engine/application/simulation/SimulationRuntimeSessionManager.ts` owns the main-process `SimulationClock`.
+  - Creating a new workspace through `workspace:dispatch` resets simulation clock time and speed to defaults.
+
+- Runtime simulation primitives:
+  - `src/engine/runtime/events` contains standalone `EventQueue`, `InMemoryEventQueue`, event types, event priorities, snapshot DTOs, and typed errors.
+  - `EventQueue` stores scheduled events only, orders by `scheduledAt`, `priority`, then stable `sequence`, and returns processed copies from `popDueEvents`.
+  - `src/engine/runtime/clock` contains standalone `SimulationClock`, speed constants, snapshots, and typed errors.
+  - `SimulationClock` stores virtual time in milliseconds, supports start/pause/stop/reset, speed x1/x5/x10, and advances only through explicit `advance(deltaRealMs)` calls. It does not use timers and does not know about `EventQueue`.
 
 - Shared command contracts:
   - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, command variants, `WorkspaceCommandResult`, events, module templates, module patches, validation mode, and debug result DTO hooks.
+  - `src/shared/simulationRuntime.ts` defines simulation commands/results and clock snapshot/speed DTO exports.
   - Renderer/main/preload share these DTO types.
 
 - Engine workspace:
@@ -96,6 +110,21 @@ Application/controller layer for workspace editing.
 - `WorkspacePlacementService.ts` - UX placement helper; domain bounds remain in `Workspace`.
 - `WorkspaceSessionErrors.ts` - typed application/session errors.
 - `index.ts` - barrel export.
+
+### `src/engine/application/simulation`
+
+Application/controller layer for simulation runtime controls.
+
+- `SimulationRuntimeSessionManager.ts` - main-process owner of `SimulationClock`; dispatches simulation commands and exposes reset for new workspace.
+- `index.ts` - barrel export.
+
+### `src/engine/runtime`
+
+Standalone simulation runtime primitives.
+
+- `clock/*` - `SimulationClock`, speed constants, snapshots, and typed errors.
+- `events/*` - `EventQueue` contract, `InMemoryEventQueue`, event DTOs/priorities/snapshots, and typed errors.
+- `index.ts` - exports both `clock` and `events`.
 
 ### `src/engine/domain/workspace`
 
@@ -151,22 +180,25 @@ Generic module contracts and concrete/current module implementations.
 Cross-process DTO types.
 
 - `workspaceSession.ts` - `WorkspaceCommand`, `WorkspaceCommandResult`, command payloads, session events, module template/patch DTOs, validation mode, and debug DTO envelope.
+- `simulationRuntime.ts` - `SimulationCommand`, `SimulationCommandResult`, clock speed/snapshot DTOs.
 - Debug-capable command/result flow includes `workspace/get-spatial-index-debug` and `WorkspaceCommandResult.debug.spatialIndex`.
 
 ### `src/main`, `src/preload`, `src/renderer`
 
 Electron and UI.
 
-- `src/main/index.ts` - app/window setup, creates `WorkspaceSessionManager`, registers IPC, installs menu.
+- `src/main/index.ts` - app/window setup, creates workspace and simulation managers, registers IPC, installs menu.
 - `src/main/menu/applicationMenu.ts` - native menu triggers.
 - `src/main/workspace/workspaceIpc.ts` - `workspace:dispatch` handler.
-- `src/preload/index.ts` and `index.d.ts` - safe bridge for workspace dispatch and menu subscriptions.
+- `src/main/simulation/simulationIpc.ts` - `simulation:dispatch` handler.
+- `src/preload/index.ts` and `index.d.ts` - safe bridge for workspace/simulation dispatch and menu subscriptions.
 - `src/renderer/src/App.tsx` - snapshot-driven composition and menu/shortcut handling.
 - `src/renderer/src/workspace/*` - UI components, dialogs, view types, and legacy pure connection helpers/tests.
 
 ## Current UI Behavior
 
 - On startup, renderer dispatches `workspace/create-project` for a default `1000 x 1000` workspace with `10 m/unit`.
+- Creating a new project resets simulation time to `0`, state to `stopped`, and speed to `x1`.
 - New Project opens a dialog and dispatches create-project.
 - Add Device dispatches add-device with desired position. Session chooses final free placement.
 - Ctrl+D adds at cursor; menu add uses camera center.
@@ -176,6 +208,8 @@ Electron and UI.
 - Possible LoRa links are runtime-derived from snapshot/device/module/position data; no real connection state is persisted.
 - View menu can toggle visual LoRa spatial-grid overlay.
 - Debug menu can enable logs, show a devices register view in console, and show a spatial index debug view in console.
+- Simulation menu can start/pause/stop/reset the clock, set speed, advance by one second, and show a clock snapshot in console.
+- Simulation shortcuts: `F5` start, `F6` pause, `Shift+F5` stop, `CmdOrCtrl+Shift+F5` reset, `CmdOrCtrl+Alt+1/5/0` speed x1/x5/x10, `F10` advance +1s, `CmdOrCtrl+Alt+T` show clock snapshot.
 
 ## Important Architecture Rules
 
@@ -200,11 +234,14 @@ Electron and UI.
 - `tests/workspace/Workspace.test.ts` - atomic workspace + registry/spatial/placement/module/endpoint/debug/validation behavior.
 - `tests/workspace/WorkspaceSession.test.ts` - command result envelope, session manager, add/move/delete/module/address/copy/paste/link/debug behavior.
 - `tests/workspace/WorkspaceConnections.test.ts` - renderer pure helper behavior.
+- `tests/runtime/EventQueue.test.ts` - event queue scheduling, ordering, cancellation, snapshots, validation, and event priorities.
+- `tests/runtime/SimulationClock.test.ts` - simulation clock behavior and `SimulationRuntimeSessionManager` dispatch.
 - `tests/types/DeviceSnapshot.test-d.ts` - type-level device snapshot checks.
 
 ## Planned But Not Implemented Yet
 
-- `SimulationSession`, `EventQueue`, `SimulationClock`, virtual time, `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
+- Full `SimulationEngine`, `SimulationSession`, `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
+- Integration between `SimulationClock`, `EventQueue`, and future event dispatch loop.
 - Actual packet delivery, RSSI/SNR/path loss, interference, collisions, routing, telemetry generation.
 - Persistence/save/load/import/export.
 - Real sensor/power/compute/storage modules beyond `StubModule`.
@@ -217,6 +254,8 @@ Electron and UI.
 - `WorkspaceConnections.test.ts` covers legacy renderer helpers; canonical possible links now come from `WorkspaceSession.getSnapshot()`.
 - `assignDeviceLoRaAddress` needs a LoRa-capable module; without a module endpoint target it should fail rather than creating a device-level address.
 - `maxConnections` limits displayed/derived outgoing LoRa candidates, not real network capacity or packet routing.
+- `SimulationClock` is deterministic/manual: it advances only via explicit commands, not by wall-clock timers.
+- `EventQueue` only stores scheduled future events; cancelled events are removed, and processed status is returned on popped copies.
 - `Workspace.validate()` defaults to project mode. Use `workspace.validate({ mode: 'network' })` or `workspace/validate-project` with `mode: 'network'` when gateway/path checks should apply.
 - Spatial index console output is debug DTO data from engine/session, not a renderer-owned source of truth.
 - No database or JSON persistence layer exists yet.

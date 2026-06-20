@@ -52,6 +52,7 @@ export type WorkspaceApi = {
     onSetDebugging: (callback: DebuggingCommandCallback) => MenuCommandCleanup
     onShowDevicesRegister: (callback: MenuCommandCallback) => MenuCommandCleanup
     onShowSpatialIndex: (callback: MenuCommandCallback) => MenuCommandCleanup
+    onShowEventDispatchDebug: (callback: MenuCommandCallback) => MenuCommandCleanup
     onSimulationCommand: (callback: SimulationMenuCommandCallback) => MenuCommandCleanup
   }
 }
