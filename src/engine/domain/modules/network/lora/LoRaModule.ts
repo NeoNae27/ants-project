@@ -196,6 +196,7 @@ export class LoRaModule implements DeviceModule {
     targetAddress: string,
     payload: unknown,
     options?: LoRaOutboundMessage['options'],
+    nowMs = 0,
   ): LoRaOutboundMessage {
     if (!targetAddress.trim()) {
       throw new ModuleDomainError(
@@ -206,7 +207,7 @@ export class LoRaModule implements DeviceModule {
 
     return {
       id: crypto.randomUUID(),
-      timestamp: Date.now(),
+      timestamp: nowMs,
       targetAddress,
       payload,
       options: {
@@ -267,7 +268,7 @@ export class LoRaModule implements DeviceModule {
    *   → buildPacket(...)
    *   → WirelessMedium.transmit(packet)
    */
-  sendUnconfirmed(targetAddress: string, payload: unknown): LoRaSendResult {
+  sendUnconfirmed(targetAddress: string, payload: unknown, nowMs = 0): LoRaSendResult {
     if (!this.canTransmit()) {
       return {
         success: false,
@@ -275,10 +276,15 @@ export class LoRaModule implements DeviceModule {
       }
     }
 
-    const message = this.createMessage(targetAddress, payload, {
-      requiresAck: false,
-      retries: 0,
-    })
+    const message = this.createMessage(
+      targetAddress,
+      payload,
+      {
+        requiresAck: false,
+        retries: 0,
+      },
+      nowMs,
+    )
 
     this.enqueueOutbound(message)
 

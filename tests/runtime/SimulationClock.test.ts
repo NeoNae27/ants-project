@@ -64,6 +64,33 @@ describe('SimulationClock', () => {
     })
   })
 
+  it('exposes the minimal deterministic simulation-time contract', () => {
+    const clock = new SimulationClock()
+
+    assert.equal(clock.getNowMs(), 0)
+    assert.equal(clock.isPaused(), false)
+
+    clock.resume()
+    clock.advanceBy(0)
+    assert.equal(clock.getNowMs(), 0)
+
+    clock.advanceBy(100)
+    assert.equal(clock.getNowMs(), 100)
+
+    clock.pause()
+    assert.equal(clock.isPaused(), true)
+    clock.advanceBy(500)
+    assert.equal(clock.getNowMs(), 100)
+
+    clock.resume()
+    assert.equal(clock.isPaused(), false)
+    clock.advanceBy(50)
+    assert.equal(clock.getNowMs(), 150)
+
+    clock.reset()
+    assert.equal(clock.getNowMs(), 0)
+  })
+
   it('keeps speed when reset clears time', () => {
     const clock = new SimulationClock()
 
@@ -130,6 +157,14 @@ describe('SimulationClock', () => {
 
     assert.throws(
       () => clock.advance(-1),
+      (error) => {
+        assertSimulationClockError(error, 'SIMULATION_CLOCK_DELTA_NEGATIVE')
+        return true
+      }
+    )
+
+    assert.throws(
+      () => clock.advanceBy(-1),
       (error) => {
         assertSimulationClockError(error, 'SIMULATION_CLOCK_DELTA_NEGATIVE')
         return true

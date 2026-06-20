@@ -214,8 +214,8 @@ test('DeviceCore enforces lifecycle transitions and logs successful changes', (t
     'DEVICE_INVALID_TRANSITION',
   )
 
-  device.transitionTo(DeviceLifecycleState.COMMISSIONING, 'factory started')
-  device.transitionTo(DeviceLifecycleState.BOUND, 'paired to gateway')
+  device.transitionTo(DeviceLifecycleState.COMMISSIONING, 'factory started', 1_000)
+  device.transitionTo(DeviceLifecycleState.BOUND, 'paired to gateway', 2_000)
 
   const buffer = device.peekBuffer()
 
@@ -233,12 +233,28 @@ test('DeviceCore enforces lifecycle transitions and logs successful changes', (t
   assert.equal(device.getLifecycleState(), DeviceLifecycleState.BOUND)
   assert.equal(buffer.length, 2)
   assert.match(String(buffer[0].id), /^[0-9a-f-]{36}$/i)
+  assert.equal(buffer[0].timestamp, 1_000)
+  assert.equal(buffer[1].timestamp, 2_000)
   assert.deepEqual(buffer[0].payload, {
     event: 'device.lifecycle_changed',
     previous: DeviceLifecycleState.NEW,
     next: DeviceLifecycleState.COMMISSIONING,
     reason: 'factory started',
   })
+})
+
+test('DeviceCore metadata uses explicit simulation time instead of wall time', () => {
+  const device = createDevice({
+    meta: {
+      createdAt: 10,
+      updatedAt: 10,
+    },
+  })
+
+  device.updateMeta({ description: 'updated at simulation time' }, 25)
+
+  assert.equal(device.getMeta().createdAt, 10)
+  assert.equal(device.getMeta().updatedAt, 25)
 })
 
 test('DeviceCore keeps buffer capacity and drains messages predictably', (t) => {

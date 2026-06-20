@@ -5,7 +5,7 @@
 - Project root: `C:\Users\nikit\Documents\Master Degree Project\ants-app`
 - Updated: `2026-06-20`
 - App: desktop simulator for ANTS / Device Network Simulator.
-- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace/session layer, standalone simulation clock/event queue primitives, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
+- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace/session layer, deterministic simulation clock, standalone event queue + event dispatcher primitives, simple simulation handlers, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
 
 ## Stack And Commands
 
@@ -29,6 +29,8 @@ Common commands from `package.json`:
 - `npm run test:workspace-session` - `WorkspaceSession` and `WorkspaceSessionManager` tests.
 - `npm run test:workspace-connections` - renderer-level pure connection helpers.
 - `npm run test:event-queue` - runtime `EventQueue` tests.
+- `npm run test:event-dispatcher` - runtime `EventDispatcher`, observers, demo handlers, and dispatch trace tests.
+- `npm run test:simulation-engine` - runtime `SimulationEngine` and engine-backed simulation session manager tests.
 - `npm run test:simulation-clock` - runtime `SimulationClock` and simulation session manager tests.
 - `npm run test:types` - type-level tests.
 
@@ -57,18 +59,24 @@ Common commands from `package.json`:
   - `src/engine/application/workspace/WorkspaceSession.ts` is the application/controller layer for editing a project.
   - `WorkspaceSession` implements create project, add/move/delete device, add/update/remove module, assign LoRa endpoint address, copy/paste, validate, get snapshot, and get spatial-index debug data.
   - `WorkspacePlacementService` handles UX placement rules: free position near desired point, paste offsets/collision avoidance.
-  - `src/engine/application/simulation/SimulationRuntimeSessionManager.ts` owns the main-process `SimulationClock`.
-  - Creating a new workspace through `workspace:dispatch` resets simulation clock time and speed to defaults.
+  - `src/engine/application/simulation/SimulationRuntimeSessionManager.ts` owns the main-process `SimulationEngine`, `SimulationClock`, `InMemoryEventQueue`, and `EventDispatcher`.
+  - Creating a new workspace through `workspace:dispatch` resets simulation engine state, queue, clock time, and speed to defaults.
 
 - Runtime simulation primitives:
-  - `src/engine/runtime/events` contains standalone `EventQueue`, `InMemoryEventQueue`, event types, event priorities, snapshot DTOs, and typed errors.
+  - `src/engine/runtime/SimulationEngine.ts` coordinates deterministic runtime steps by advancing `SimulationClock`, popping due events from `EventQueue`, dispatching them through `EventDispatcher`, and returning structured step/run results.
+  - `src/engine/runtime/events` contains standalone `EventQueue`, `InMemoryEventQueue`, `EventDispatcher`, dispatch traces/results, observers, event types, event priorities, snapshot DTOs, and typed errors.
   - `EventQueue` stores scheduled events only, orders by `scheduledAt`, `priority`, then stable `sequence`, and returns processed copies from `popDueEvents`.
+  - `EventDispatcher` receives already-due events, resolves handlers by `event.type`, passes `DispatchContext`, records wall-clock handler execution metadata separately from simulation time, and returns per-event/batch dispatch results.
+  - Dispatch errors use `EventDispatchError` with `severity: recoverable | fatal`; batch dispatch continues after recoverable failures and stops after fatal failures.
+  - Dispatch observers include `ConsoleDispatchObserver` for CLI/debug visibility.
+  - Simple runtime handlers exist for `simulation.noop` and `simulation.log`.
   - `src/engine/runtime/clock` contains standalone `SimulationClock`, speed constants, snapshots, and typed errors.
-  - `SimulationClock` stores virtual time in milliseconds, supports start/pause/stop/reset, speed x1/x5/x10, and advances only through explicit `advance(deltaRealMs)` calls. It does not use timers and does not know about `EventQueue`.
+  - `SimulationClock` stores virtual time in milliseconds and is the source of simulation time. It exposes `getNowMs()`, `advanceBy(deltaMs)`, `setSpeed()`, `pause()`, `resume()`, `isPaused()`, and `reset()`. Legacy `start()` and `advance(deltaRealMs)` remain as compatibility aliases.
+  - `SimulationClock` advances only through explicit calls, never timers, and does not know about `EventQueue` or `EventDispatcher`.
 
 - Shared command contracts:
   - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, command variants, `WorkspaceCommandResult`, events, module templates, module patches, validation mode, and debug result DTO hooks.
-  - `src/shared/simulationRuntime.ts` defines simulation commands/results and clock snapshot/speed DTO exports.
+  - `src/shared/simulationRuntime.ts` defines simulation commands/results plus clock, engine, and step result DTO exports.
   - Renderer/main/preload share these DTO types.
 
 - Engine workspace:
@@ -94,9 +102,11 @@ Common commands from `package.json`:
 
 - Device/module domain:
   - `DeviceCore` stores identity, model/version, role, lifecycle/execution state, config, metadata, modules, and a bounded message buffer.
+  - `DeviceCore` and `DeviceFactory` use explicit simulation timestamps (`nowMs`) for metadata and lifecycle log messages; avoid wall-clock time inside simulation/domain state.
   - `DeviceFactory.createDevice()` creates generic devices; `createNode()` remains for node defaults/back-compat.
   - `ModuleFactory` creates real `LoRaModule` for LoRa templates and `StubModule` for sensor/power/compute/storage/non-LoRa placeholders.
   - `LoRaModule` stores LoRa radio/mesh config, runtime state, inbound/outbound buffers, builds packets, and does not deliver packets.
+  - `LoRaModule.createMessage()` and `sendUnconfirmed()` accept explicit simulation timestamps for deterministic packet metadata.
   - LoRa config includes `maxRangeMeters` and `maxConnections` (default `8`) for limiting possible outgoing link candidates.
 
 ## Domain Map
@@ -122,8 +132,10 @@ Application/controller layer for simulation runtime controls.
 
 Standalone simulation runtime primitives.
 
+- `SimulationEngine.ts`, `SimulationEngineTypes.ts`, `SimulationEngineErrors.ts` - deterministic runtime coordinator, state/result DTOs, and engine-level errors.
 - `clock/*` - `SimulationClock`, speed constants, snapshots, and typed errors.
-- `events/*` - `EventQueue` contract, `InMemoryEventQueue`, event DTOs/priorities/snapshots, and typed errors.
+- `events/*` - `EventQueue` contract, `InMemoryEventQueue`, `EventDispatcher`, dispatch result/trace/observer contracts, simple simulation handlers, event DTOs/priorities/snapshots, and typed errors.
+- `events/handlers/*` - simple built-in handlers such as `NoopHandler` for `simulation.noop` and `SimulationLogHandler` for `simulation.log`.
 - `index.ts` - exports both `clock` and `events`.
 
 ### `src/engine/domain/workspace`
@@ -207,8 +219,9 @@ Electron and UI.
 - Side panels show devices, possible LoRa links, device details, modules, config, and stats.
 - Possible LoRa links are runtime-derived from snapshot/device/module/position data; no real connection state is persisted.
 - View menu can toggle visual LoRa spatial-grid overlay.
-- Debug menu can enable logs, show a devices register view in console, and show a spatial index debug view in console.
-- Simulation menu can start/pause/stop/reset the clock, set speed, advance by one second, and show a clock snapshot in console.
+- Debug menu can enable logs, show a devices register view in console, show a spatial index debug view in console, and show an event queue + event dispatch demo in console.
+- The event dispatch debug demo schedules `simulation.noop` and `simulation.log`, pops due events, dispatches them, and prints queue snapshots, dispatch batch results, and dispatch traces.
+- Simulation menu can start/pause/stop/reset the engine-backed runtime, set clock speed, advance by one real second through `SimulationEngine.step(deltaRealMs)`, and show a clock snapshot in console.
 - Simulation shortcuts: `F5` start, `F6` pause, `Shift+F5` stop, `CmdOrCtrl+Shift+F5` reset, `CmdOrCtrl+Alt+1/5/0` speed x1/x5/x10, `F10` advance +1s, `CmdOrCtrl+Alt+T` show clock snapshot.
 
 ## Important Architecture Rules
@@ -223,6 +236,10 @@ Electron and UI.
 - `DeviceCore` remains transport-agnostic.
 - `LoRaModule` only creates/holds packets and buffers. Delivery belongs to future `WirelessMedium`.
 - `WorkspaceSnapshot` must stay serializable and independent from internal maps/classes.
+- `SimulationEngine` is a coordinator only: it must not branch on event types or implement LoRa/routing/wireless/backend logic.
+- `SimulationEngine.step(deltaRealMs)` accepts real elapsed milliseconds; clock speed determines the resulting simulation-time delta.
+- Simulation time must come from `SimulationClock.getNowMs()` / explicit `nowMs` values passed by runtime code. Do not use `Date.now()` for simulation/domain timestamps.
+- Wall-clock time is allowed only for runtime execution metadata such as `EventDispatcher` handler duration, and it must stay separate from simulation time fields.
 
 ## Tests
 
@@ -235,13 +252,15 @@ Electron and UI.
 - `tests/workspace/WorkspaceSession.test.ts` - command result envelope, session manager, add/move/delete/module/address/copy/paste/link/debug behavior.
 - `tests/workspace/WorkspaceConnections.test.ts` - renderer pure helper behavior.
 - `tests/runtime/EventQueue.test.ts` - event queue scheduling, ordering, cancellation, snapshots, validation, and event priorities.
-- `tests/runtime/SimulationClock.test.ts` - simulation clock behavior and `SimulationRuntimeSessionManager` dispatch.
+- `tests/runtime/EventDispatcher.test.ts` - handler lookup, context passing, traces, observers, recoverable/fatal errors, built-in simulation handlers, and demo dispatch scenario.
+- `tests/runtime/SimulationEngine.test.ts` - engine start/pause/resume/stop/reset/step/runUntil behavior and engine-backed simulation session manager dispatch.
+- `tests/runtime/SimulationClock.test.ts` - simulation clock behavior, deterministic time contract, speed/pause/resume semantics, and `SimulationRuntimeSessionManager` dispatch.
 - `tests/types/DeviceSnapshot.test-d.ts` - type-level device snapshot checks.
 
 ## Planned But Not Implemented Yet
 
-- Full `SimulationEngine`, `SimulationSession`, `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
-- Integration between `SimulationClock`, `EventQueue`, and future event dispatch loop.
+- Full `SimulationSession`, `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
+- Real runtime scenarios and domain handlers beyond simple `simulation.noop` / `simulation.log`.
 - Actual packet delivery, RSSI/SNR/path loss, interference, collisions, routing, telemetry generation.
 - Persistence/save/load/import/export.
 - Real sensor/power/compute/storage modules beyond `StubModule`.
@@ -254,8 +273,10 @@ Electron and UI.
 - `WorkspaceConnections.test.ts` covers legacy renderer helpers; canonical possible links now come from `WorkspaceSession.getSnapshot()`.
 - `assignDeviceLoRaAddress` needs a LoRa-capable module; without a module endpoint target it should fail rather than creating a device-level address.
 - `maxConnections` limits displayed/derived outgoing LoRa candidates, not real network capacity or packet routing.
-- `SimulationClock` is deterministic/manual: it advances only via explicit commands, not by wall-clock timers.
+- `SimulationClock` is deterministic/manual: it advances only via explicit commands, not by wall-clock timers. It is the source of simulation time for future runtime logic.
 - `EventQueue` only stores scheduled future events; cancelled events are removed, and processed status is returned on popped copies.
+- `EventDispatcher` does not pop from `EventQueue` and does not advance time. It dispatches events that the caller already popped as due.
+- `simulation.noop` and `simulation.log` are simple runtime/demo handlers, not domain simulation models.
 - `Workspace.validate()` defaults to project mode. Use `workspace.validate({ mode: 'network' })` or `workspace/validate-project` with `mode: 'network'` when gateway/path checks should apply.
 - Spatial index console output is debug DTO data from engine/session, not a renderer-owned source of truth.
 - No database or JSON persistence layer exists yet.

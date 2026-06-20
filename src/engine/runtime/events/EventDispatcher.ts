@@ -16,13 +16,7 @@ function createDispatchId(event: SimulationEvent): string {
 }
 
 function getWallTimeMs(): number {
-  const performanceClock = globalThis.performance
-
-  if (performanceClock) {
-    return performanceClock.timeOrigin + performanceClock.now()
-  }
-
-  return Date.now()
+  return globalThis.performance.timeOrigin + globalThis.performance.now()
 }
 
 function getHandlerName(handler: EventHandler): string | undefined {

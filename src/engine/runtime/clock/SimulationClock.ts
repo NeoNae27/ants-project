@@ -18,7 +18,15 @@ export class SimulationClock {
   private realElapsedMs = 0
   private speed: SimulationClockSpeed = SimulationClockSpeedMultiplier.X1
 
+  getNowMs(): number {
+    return this.virtualTimeMs
+  }
+
   start(): SimulationClockSnapshot {
+    return this.resume()
+  }
+
+  resume(): SimulationClockSnapshot {
     this.state = 'running'
     return this.getSnapshot()
   }
@@ -31,6 +39,10 @@ export class SimulationClock {
   stop(): SimulationClockSnapshot {
     this.state = 'stopped'
     return this.getSnapshot()
+  }
+
+  isPaused(): boolean {
+    return this.state === 'paused'
   }
 
   reset(): SimulationClockSnapshot {
@@ -53,20 +65,20 @@ export class SimulationClock {
     return this.getSnapshot()
   }
 
-  advance(deltaRealMs: number): SimulationClockSnapshot {
-    if (!Number.isFinite(deltaRealMs)) {
+  advanceBy(deltaMs: number): SimulationClockSnapshot {
+    if (!Number.isFinite(deltaMs)) {
       throw new SimulationClockError(
         'SIMULATION_CLOCK_DELTA_NOT_FINITE',
         'Clock advance delta must be a finite number',
-        { deltaRealMs }
+        { deltaMs }
       )
     }
 
-    if (deltaRealMs < 0) {
+    if (deltaMs < 0) {
       throw new SimulationClockError(
         'SIMULATION_CLOCK_DELTA_NEGATIVE',
         'Clock advance delta must be non-negative',
-        { deltaRealMs }
+        { deltaMs }
       )
     }
 
@@ -74,10 +86,14 @@ export class SimulationClock {
       return this.getSnapshot()
     }
 
-    this.realElapsedMs += deltaRealMs
-    this.virtualTimeMs += deltaRealMs * this.speed
+    this.realElapsedMs += deltaMs
+    this.virtualTimeMs += deltaMs * this.speed
 
     return this.getSnapshot()
+  }
+
+  advance(deltaRealMs: number): SimulationClockSnapshot {
+    return this.advanceBy(deltaRealMs)
   }
 
   getSnapshot(): SimulationClockSnapshot {

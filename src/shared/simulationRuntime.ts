@@ -2,8 +2,13 @@ import type {
   SimulationClockSnapshot,
   SimulationClockSpeed
 } from '../engine/runtime/clock'
+import type {
+  SimulationEngineSnapshot,
+  SimulationStepResult
+} from '../engine/runtime'
 
 export type { SimulationClockSnapshot, SimulationClockSpeed } from '../engine/runtime/clock'
+export type { SimulationEngineSnapshot, SimulationStepResult } from '../engine/runtime'
 
 export type SimulationStartCommand = {
   type: 'simulation/start'
@@ -47,6 +52,8 @@ export type SimulationCommand =
 export type SimulationCommandResult = {
   ok: boolean
   clock?: SimulationClockSnapshot
+  engine?: SimulationEngineSnapshot
+  step?: SimulationStepResult
   error?: {
     code: string
     message: string

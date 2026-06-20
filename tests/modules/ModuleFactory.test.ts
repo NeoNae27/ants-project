@@ -35,6 +35,23 @@ describe('ModuleFactory', () => {
     assert.equal(module.getSnapshot().sourceAddress, 'lora-device-1')
   })
 
+  it('creates LoRa messages with explicit simulation timestamps', () => {
+    const factory = new ModuleFactory()
+    const module = factory.createModule(loraTemplate, {
+      id: 'module-lora-1',
+      deviceId: 'device-1',
+      loraAddress: 'lora-device-1',
+    })
+
+    assert.ok(module instanceof LoRaModule)
+
+    const message = module.createMessage('gateway-1', { temperature: 21 }, undefined, 42_000)
+    const packet = module.buildPacket(message)
+
+    assert.equal(message.timestamp, 42_000)
+    assert.equal(packet.meta.timestamp, 42_000)
+  })
+
   it('creates stub modules for non-LoRa templates', () => {
     const factory = new ModuleFactory()
     const module = factory.createModule(
