@@ -1,15 +1,21 @@
 import { useState } from 'react'
+import type {
+  EventQueueSnapshot,
+  SimulationClockSnapshot
+} from '../../../shared/simulationRuntime'
 import type { WorkspaceCommunicationConfig, WorkspaceDevice, WorkspaceModule } from './types'
 import { ModuleCatalogDialog } from './ModuleCatalogDialog'
 
 type DeviceInspectorProps = {
   device: WorkspaceDevice | null
+  simulationClock: SimulationClockSnapshot | null
+  simulationQueue: EventQueueSnapshot | null
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
   onRemoveModule: (deviceId: string, moduleId: string) => void
 }
 
-type InspectorSectionId = 'general' | 'config' | 'modules' | 'statistics'
+type InspectorSectionId = 'queue' | 'general' | 'config' | 'modules' | 'statistics'
 
 function InfoRow({ label, value }: { label: string; value: string | number }): React.JSX.Element {
   return (
@@ -28,18 +34,36 @@ function formatMeters(value: number): string {
   return value >= 1000 ? `${(value / 1000).toFixed(1)} km` : `${value} m`
 }
 
+function formatTaskTime(value: number): string {
+  return `${Math.round(value).toLocaleString()} ms`
+}
+
+function formatTaskDueIn(eventScheduledAt: number, simulationClock: SimulationClockSnapshot | null): string {
+  const nowMs = simulationClock?.virtualTimeMs ?? 0
+  const dueInMs = eventScheduledAt - nowMs
+
+  if (dueInMs <= 0) {
+    return 'due now'
+  }
+
+  return `in ${formatTaskTime(dueInMs)}`
+}
+
 const spreadingFactorOptions: WorkspaceCommunicationConfig['spreadingFactor'][] = [7, 8, 9, 10, 11, 12]
 const codingRateOptions: WorkspaceCommunicationConfig['codingRate'][] = ['4/5', '4/6', '4/7', '4/8']
 const bandwidthOptions = [125_000, 250_000, 500_000]
 
 export function DeviceInspector({
   device,
+  simulationClock,
+  simulationQueue,
   onAddModule,
   onUpdateModule,
   onRemoveModule
 }: DeviceInspectorProps): React.JSX.Element {
   const [isModuleDialogOpen, setIsModuleDialogOpen] = useState(false)
   const [collapsedSections, setCollapsedSections] = useState<Record<InspectorSectionId, boolean>>({
+    queue: false,
     general: false,
     config: false,
     modules: false,
@@ -104,29 +128,81 @@ export function DeviceInspector({
         <span>INSPECTOR</span>
       </header>
 
-      {device ? (
-        <div className="inspector-content">
-          <section className="inspector-section">
+      <div className="inspector-content">
+        <section className="inspector-section">
+          <div className="inspector-section-header">
             <button
               className="side-section-toggle"
               type="button"
-              aria-expanded={!collapsedSections.general}
-              onClick={() => toggleSection('general')}
+              aria-expanded={!collapsedSections.queue}
+              onClick={() => toggleSection('queue')}
             >
-              <span className={collapsedSections.general ? 'section-caret is-collapsed' : 'section-caret'} />
-              <h2>General</h2>
+              <span className={collapsedSections.queue ? 'section-caret is-collapsed' : 'section-caret'} />
+              <h2>Task Queue</h2>
             </button>
-            {!collapsedSections.general ? (
-              <>
-                <InfoRow label="Name" value={device.name} />
-                <InfoRow label="ID" value={device.id} />
-                <InfoRow label="Model" value={device.model} />
-                <InfoRow label="Role" value={device.role} />
-                <InfoRow label="Status" value={device.status} />
-                <InfoRow label="State" value={device.executionState} />
-              </>
-            ) : null}
-          </section>
+            <span className="queue-count">{simulationQueue?.size ?? 0}</span>
+          </div>
+
+          {!collapsedSections.queue ? (
+            simulationQueue && simulationQueue.events.length > 0 ? (
+              <div className="queue-list">
+                <div className="queue-summary">
+                  <span>Next</span>
+                  <strong>
+                    {simulationQueue.nextEventAt !== undefined
+                      ? formatTaskTime(simulationQueue.nextEventAt)
+                      : 'none'}
+                  </strong>
+                </div>
+                {simulationQueue.events.map((event) => (
+                  <div className="queue-task" key={event.id}>
+                    <div className="queue-task-header">
+                      <strong title={event.type}>{event.type}</strong>
+                      <span>{formatTaskDueIn(event.scheduledAt, simulationClock)}</span>
+                    </div>
+                    <span title={event.id}>{event.id}</span>
+                    <dl className="queue-task-meta">
+                      <div>
+                        <dt>At</dt>
+                        <dd>{formatTaskTime(event.scheduledAt)}</dd>
+                      </div>
+                      <div>
+                        <dt>Priority</dt>
+                        <dd>{event.priority}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="inspector-empty-line">No queued tasks</div>
+            )
+          ) : null}
+        </section>
+
+        {device ? (
+          <>
+            <section className="inspector-section">
+              <button
+                className="side-section-toggle"
+                type="button"
+                aria-expanded={!collapsedSections.general}
+                onClick={() => toggleSection('general')}
+              >
+                <span className={collapsedSections.general ? 'section-caret is-collapsed' : 'section-caret'} />
+                <h2>General</h2>
+              </button>
+              {!collapsedSections.general ? (
+                <>
+                  <InfoRow label="Name" value={device.name} />
+                  <InfoRow label="ID" value={device.id} />
+                  <InfoRow label="Model" value={device.model} />
+                  <InfoRow label="Role" value={device.role} />
+                  <InfoRow label="Status" value={device.status} />
+                  <InfoRow label="State" value={device.executionState} />
+                </>
+              ) : null}
+            </section>
 
           <section className="inspector-section">
             <button
@@ -331,19 +407,21 @@ export function DeviceInspector({
             {!collapsedSections.statistics ? (
               <>
                 <InfoRow label="Buffer size" value={device.bufferSize} />
+                <InfoRow label="Received packets" value={device.receivedPacketCount} />
                 <InfoRow label="Module count" value={device.modules.length} />
                 <InfoRow label="Position X" value={device.x} />
                 <InfoRow label="Position Y" value={device.y} />
               </>
             ) : null}
-          </section>
-        </div>
-      ) : (
-        <div className="inspector-empty-state">
-          <strong>No device selected</strong>
-          <span>Select a device on the workspace to inspect its details.</span>
-        </div>
-      )}
+            </section>
+          </>
+        ) : (
+          <div className="inspector-empty-state">
+            <strong>No device selected</strong>
+            <span>Select a device on the workspace to inspect its details.</span>
+          </div>
+        )}
+      </div>
     </aside>
   )
 }

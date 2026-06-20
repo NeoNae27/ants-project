@@ -60,6 +60,7 @@ function createDevice(params: {
     },
     modules: params.modules ?? [],
     bufferSize: 0,
+    receivedPacketCount: 0,
     x: params.x,
     y: params.y
   }

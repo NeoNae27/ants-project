@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
+import { SimulationRuntimeSessionManager } from '../../src/engine/application/simulation'
 import { WorkspaceSession, WorkspaceSessionManager } from '../../src/engine/application/workspace'
+import { SimulationEngineStatus } from '../../src/engine/runtime'
 import type { WorkspaceCommandResult } from '../../src/shared/workspaceSession'
 
 const loraTemplate = {
@@ -96,6 +98,98 @@ describe('WorkspaceSession', () => {
 
     assertOk(deleted)
     assert.equal(deleted.snapshot?.devices.length, 0)
+  })
+
+  it('creates LoRa Gateway devices from shared presets', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+
+    const added = session.dispatch({
+      type: 'workspace/add-device',
+      preset: 'lora-gateway',
+      position: { x: 100, y: 100 },
+    })
+
+    assertOk(added)
+    const gateway = added.snapshot?.devices[0]
+
+    assert.equal(gateway?.info.role, 'gateway')
+    assert.equal(gateway?.info.model, 'ANT-G')
+    assert.equal(gateway?.modules.length, 1)
+    assert.equal(gateway?.modules[0].communication?.protocol, 'lora')
+    assert.equal(gateway?.address, `${gateway?.id}:lora`)
+    assert.equal(gateway?.networkEndpoints[0]?.address, gateway?.address)
+  })
+
+  it('lets explicit add-device payload override preset defaults', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+
+    const added = session.dispatch({
+      type: 'workspace/add-device',
+      preset: 'lora-gateway',
+      name: 'Main Gateway',
+      model: 'ANT-G-CUSTOM',
+      loraAddress: 'gw-main',
+      position: { x: 100, y: 100 },
+    })
+
+    assertOk(added)
+    const gateway = added.snapshot?.devices[0]
+
+    assert.equal(gateway?.info.role, 'gateway')
+    assert.equal(gateway?.info.name, 'Main Gateway')
+    assert.equal(gateway?.info.model, 'ANT-G-CUSTOM')
+    assert.equal(gateway?.address, 'gw-main')
+  })
+
+  it('rejects duplicate LoRa addresses while adding preset devices', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+
+    const first = session.dispatch({
+      type: 'workspace/add-device',
+      preset: 'lora-gateway',
+      loraAddress: 'gw-main',
+      position: { x: 100, y: 100 },
+    })
+    const duplicate = session.dispatch({
+      type: 'workspace/add-device',
+      preset: 'lora-sensor-node',
+      loraAddress: 'gw-main',
+      position: { x: 200, y: 200 },
+    })
+
+    assertOk(first)
+    assert.equal(duplicate.ok, false)
+    assert.equal(duplicate.error?.code, 'LORA_ADDRESS_ALREADY_EXISTS')
+  })
+
+  it('preset add-device commands do not start, schedule, or advance simulation', () => {
+    const workspaceManager = new WorkspaceSessionManager()
+    const simulationManager = new SimulationRuntimeSessionManager()
+
+    assertOk(
+      workspaceManager.dispatch({
+        type: 'workspace/create-project',
+        name: 'Menu project',
+        width: 1000,
+        height: 1000,
+      }),
+    )
+
+    const before = simulationManager.getClockSnapshot()
+    const added = workspaceManager.dispatch({
+      type: 'workspace/add-device',
+      preset: 'lora-gateway',
+      position: { x: 100, y: 100 },
+    })
+    const after = simulationManager.getClockSnapshot()
+
+    assertOk(added)
+    assert.equal(after.clock?.virtualTimeMs, before.clock?.virtualTimeMs)
+    assert.equal(after.engine?.state.status, SimulationEngineStatus.IDLE)
+    assert.equal(after.queue?.size, 0)
   })
 
   it('adds and updates real LoRa modules and calculates possible links', () => {

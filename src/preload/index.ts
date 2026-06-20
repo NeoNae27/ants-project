@@ -5,11 +5,16 @@ import type {
   SimulationCommand,
   SimulationCommandResult
 } from '../shared/simulationRuntime'
-import type { WorkspaceCommand, WorkspaceCommandResult } from '../shared/workspaceSession'
+import type {
+  WorkspaceCommand,
+  WorkspaceCommandResult,
+  WorkspaceDevicePreset
+} from '../shared/workspaceSession'
 
 type MenuCommandCallback = () => void
 type AddDeviceCommand = {
   placement: 'center' | 'cursor'
+  preset?: WorkspaceDevicePreset
 }
 type AddDeviceCommandCallback = (command: AddDeviceCommand) => void
 type PasteDeviceCommand = {
@@ -32,6 +37,7 @@ type SimulationMenuCommand =
   | { action: 'reset' }
   | { action: 'set-speed'; speed: SimulationClockSpeed }
   | { action: 'advance-clock'; deltaRealMs: number }
+  | { action: 'schedule-basic-telemetry' }
   | { action: 'show-clock-snapshot' }
 type SimulationMenuCommandCallback = (command: SimulationMenuCommand) => void
 

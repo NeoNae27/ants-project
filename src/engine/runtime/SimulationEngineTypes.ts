@@ -5,6 +5,7 @@ import type {
   EventDispatchResult,
   EventDispatcher,
   EventQueue,
+  RuntimeContextProvider,
   SimulationEvent
 } from './events'
 import type { SimulationEngineError } from './SimulationEngineErrors'
@@ -43,6 +44,7 @@ export type SimulationEngineDependencies = {
   wirelessMedium?: unknown
   metricsCollector?: unknown
   logger?: DispatchLoggerPort
+  runtimeContextProvider?: RuntimeContextProvider
 }
 
 export type SimulationEngineResult = {

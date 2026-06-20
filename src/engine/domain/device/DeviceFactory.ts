@@ -110,4 +110,32 @@ export class DeviceFactory {
       nowMs: params.nowMs
     })
   }
+
+  /**
+   * Creates a Gateway device without introducing a separate Gateway subclass.
+   *
+   * Gateway-specific behavior comes from the role, attached modules, and runtime handlers.
+   */
+  static createGateway(params: {
+    id: string
+    model: string
+    version: string
+    name?: string
+    x: number
+    y: number
+    modules?: readonly DeviceModule[]
+    nowMs?: number
+  }): DeviceCore {
+    return this.createDevice({
+      id: params.id,
+      model: params.model,
+      version: params.version,
+      name: params.name,
+      role: DeviceRole.GATEWAY,
+      x: params.x,
+      y: params.y,
+      modules: params.modules,
+      nowMs: params.nowMs
+    })
+  }
 }

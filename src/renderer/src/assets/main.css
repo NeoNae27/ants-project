@@ -339,6 +339,113 @@ body,
   white-space: nowrap;
 }
 
+.queue-count {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 20px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.queue-list {
+  display: grid;
+  gap: 6px;
+}
+
+.queue-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 24px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.queue-summary strong {
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-task {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  border: 1px solid #d8dee8;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 7px 8px;
+}
+
+.queue-task-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.queue-task-header strong,
+.queue-task > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-task-header strong {
+  color: #1e293b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.queue-task-header span {
+  color: #475569;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.queue-task > span {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.queue-task-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 2px 0 0;
+}
+
+.queue-task-meta div {
+  min-width: 0;
+  border-top: 1px solid #eef2f7;
+  padding-top: 4px;
+}
+
+.queue-task-meta dt {
+  margin: 0;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.queue-task-meta dd {
+  margin: 1px 0 0;
+  overflow: hidden;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .inspector-empty-line {
   border: 1px dashed #cbd5e1;
   border-radius: 4px;

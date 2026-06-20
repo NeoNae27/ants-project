@@ -352,7 +352,12 @@ export class DeviceCore {
    * Успешный переход записывает log-сообщение во внутренний buffer,
    * чтобы история переходов была доступна для debug и UI.
    */
-  transitionTo(next: DeviceLifecycleState, reason?: string, nowMs = this.meta.updatedAt): void {
+  transitionTo(
+    next: DeviceLifecycleState,
+    reason?: string,
+    nowMs = this.meta.updatedAt,
+    messageId: string = crypto.randomUUID()
+  ): void {
     if (!this.canTransitionTo(next)) {
       throw new DeviceDomainError(
         `Invalid lifecycle transition: ${this.lifecycleState} -> ${next}`,
@@ -365,7 +370,7 @@ export class DeviceCore {
     this.touch(nowMs)
 
     this.pushToBuffer({
-      id: crypto.randomUUID(),
+      id: messageId,
       timestamp: nowMs,
       type: 'log',
       payload: {
@@ -389,7 +394,7 @@ export class DeviceCore {
    *
    * Decommissioned устройство больше не может выполнять действия.
    */
-  setExecutionState(next: DeviceExecutionState): void {
+  setExecutionState(next: DeviceExecutionState, nowMs = this.meta.updatedAt): void {
     if (this.lifecycleState === DeviceLifecycleState.DECOMMISSIONED) {
       throw new DeviceDomainError(
         'Cannot change execution state of decommissioned device',
@@ -398,7 +403,7 @@ export class DeviceCore {
     }
 
     this.executionState = next
-    this.touch()
+    this.touch(nowMs)
   }
 
   /**

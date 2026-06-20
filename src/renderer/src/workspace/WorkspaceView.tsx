@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
-import type { SimulationClockSnapshot } from '../../../shared/simulationRuntime'
+import type {
+  EventQueueSnapshot,
+  SimulationClockSnapshot
+} from '../../../shared/simulationRuntime'
+import type { WorkspaceDevicePreset } from '../../../shared/workspaceSession'
 import { DeviceInspector } from './DeviceInspector'
 import { WorkspaceNavigator } from './WorkspaceNavigator'
 import type {
@@ -25,15 +29,17 @@ type WorkspaceViewProps = {
   possibleConnections: WorkspacePossibleConnection[]
   spatialGridVisibility: WorkspaceSpatialGridVisibility
   simulationClock: SimulationClockSnapshot | null
+  simulationQueue: EventQueueSnapshot | null
   addDeviceRequest: {
     id: number
     placement: AddDevicePlacement
+    preset?: WorkspaceDevicePreset
   }
   pasteDeviceRequest: {
     id: number
     placement: AddDevicePlacement
   }
-  onAddDeviceAt: (position: WorkspacePoint) => void
+  onAddDeviceAt: (position: WorkspacePoint, preset?: WorkspaceDevicePreset) => void
   onPasteDeviceAt: (position: WorkspacePoint) => void
   onMoveDevice: (deviceId: string, position: WorkspacePoint) => void
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
@@ -108,6 +114,7 @@ export function WorkspaceView({
   possibleConnections,
   spatialGridVisibility,
   simulationClock,
+  simulationQueue,
   addDeviceRequest,
   pasteDeviceRequest,
   onAddDeviceAt,
@@ -281,21 +288,26 @@ export function WorkspaceView({
     handledAddDeviceRequestIdRef.current = addDeviceRequest.id
 
     if (!viewportSize.width || !viewportSize.height) {
-      onAddDeviceAt({
-        x: project.width / 2,
-        y: project.height / 2
-      })
+      onAddDeviceAt(
+        {
+          x: project.width / 2,
+          y: project.height / 2
+        },
+        addDeviceRequest.preset
+      )
       return
     }
 
     onAddDeviceAt(
       addDeviceRequest.placement === 'cursor' && cursorWorkspacePointRef.current
         ? cursorWorkspacePointRef.current
-        : getViewportCenterWorkspacePoint()
+        : getViewportCenterWorkspacePoint(),
+      addDeviceRequest.preset
     )
   }, [
     addDeviceRequest.id,
     addDeviceRequest.placement,
+    addDeviceRequest.preset,
     getViewportCenterWorkspacePoint,
     onAddDeviceAt,
     project.height,
@@ -619,6 +631,8 @@ export function WorkspaceView({
 
         <DeviceInspector
           device={selectedDevice}
+          simulationClock={simulationClock}
+          simulationQueue={simulationQueue}
           onAddModule={onAddModule}
           onUpdateModule={onUpdateModule}
           onRemoveModule={onRemoveModule}

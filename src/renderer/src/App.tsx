@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { DeviceRole } from '../../engine/domain/device/DeviceRole'
 import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
 import {
   ConsoleDispatchObserver,
@@ -14,9 +15,13 @@ import {
 import type {
   SimulationCommand,
   SimulationClockSnapshot,
-  SimulationCommandResult
+  SimulationCommandResult,
+  SimulationRuntimeExecutionLogEntry
 } from '../../shared/simulationRuntime'
-import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
+import type {
+  WorkspaceCommandResult,
+  WorkspaceDevicePreset
+} from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
 import type {
@@ -87,6 +92,7 @@ function snapshotToDevices(snapshot: WorkspaceSnapshot | null): WorkspaceDevice[
       communication: module.communication ? { ...module.communication } : undefined
     })),
     bufferSize: device.info.bufferSize,
+    receivedPacketCount: device.info.receivedPacketCount,
     x: device.position.x,
     y: device.position.y
   }))
@@ -99,6 +105,44 @@ function moduleToTemplate(module: WorkspaceModule) {
     model: module.model,
     communication: module.communication ? { ...module.communication } : undefined
   }
+}
+
+type WorkspaceSnapshotDevice = WorkspaceSnapshot['devices'][number]
+
+function getSnapshotLoRaAddress(device: WorkspaceSnapshotDevice): string | undefined {
+  return (
+    device.address ??
+    device.networkEndpoints.find((endpoint) => endpoint.protocol === 'lora')?.address
+  )
+}
+
+function getSnapshotLoRaModule(device: WorkspaceSnapshotDevice): WorkspaceSnapshotDevice['modules'][number] | undefined {
+  return device.modules.find((module) => module.communication?.protocol === 'lora')
+}
+
+function hasSnapshotLoRaModule(device: WorkspaceSnapshotDevice): boolean {
+  return Boolean(getSnapshotLoRaModule(device))
+}
+
+function createDefaultLoRaAddress(device: WorkspaceSnapshotDevice): string {
+  return `${device.id}:lora`
+}
+
+function findBasicTelemetryGatewayTarget(
+  snapshot: WorkspaceSnapshot,
+  sourceDeviceId: string
+): WorkspaceSnapshotDevice | undefined {
+  for (const device of snapshot.devices) {
+    if (device.id === sourceDeviceId || device.info.role !== DeviceRole.GATEWAY) {
+      continue
+    }
+
+    if (hasSnapshotLoRaModule(device)) {
+      return device
+    }
+  }
+
+  return undefined
 }
 
 function createDevicesRegisterView(devices: WorkspaceDevice[]): Array<Record<string, string | number>> {
@@ -229,9 +273,28 @@ function createEventDispatchTraceView(
   }))
 }
 
+function createSimulationExecutionView(
+  executions: readonly SimulationRuntimeExecutionLogEntry[]
+): Array<Record<string, string | number | boolean>> {
+  return executions.map((execution) => ({
+    sequence: execution.sequence,
+    mode: execution.mode,
+    ok: execution.ok,
+    timeMs: execution.endedAtMs,
+    deltaSimulationMs: execution.deltaSimulationMs,
+    processed: execution.processedEventCount,
+    failed: execution.failedEventCount,
+    pending: execution.pendingEventCount,
+    events: execution.processedEvents.map((event) => event.type).join(', '),
+    errors: execution.errors.map((error) => error.code).join(', ')
+  }))
+}
+
 function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
   const [simulationClock, setSimulationClock] = useState<SimulationClockSnapshot | null>(null)
+  const [simulationQueue, setSimulationQueue] = useState<EventQueueSnapshot | null>(null)
+  const lastSimulationExecutionSequenceRef = useRef(0)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [spatialGridVisibility, setSpatialGridVisibility] =
@@ -242,6 +305,7 @@ function App(): React.JSX.Element {
   const [addDeviceRequest, setAddDeviceRequest] = useState<{
     id: number
     placement: AddDevicePlacement
+    preset?: WorkspaceDevicePreset
   }>({
     id: 0,
     placement: 'center'
@@ -331,10 +395,11 @@ function App(): React.JSX.Element {
     [applyWorkspaceResult]
   )
 
-  const requestAddDevice = useCallback((placement: AddDevicePlacement) => {
+  const requestAddDevice = useCallback((placement: AddDevicePlacement, preset?: WorkspaceDevicePreset) => {
     setAddDeviceRequest((currentRequest) => ({
       id: currentRequest.id + 1,
-      placement
+      placement,
+      ...(preset ? { preset } : {})
     }))
   }, [])
 
@@ -346,11 +411,12 @@ function App(): React.JSX.Element {
   }, [])
 
   const addDeviceAt = useCallback(
-    (position: WorkspacePoint) => {
+    (position: WorkspacePoint, preset?: WorkspaceDevicePreset) => {
       void dispatchWorkspaceCommand(
         {
           type: 'workspace/add-device',
-          position
+          position,
+          ...(preset ? { preset } : {})
         },
         { selectNewDevice: true }
       )
@@ -504,10 +570,46 @@ function App(): React.JSX.Element {
     })
   }, [dispatchWorkspaceCommand])
 
-  const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
-    if (result.clock) {
-      setSimulationClock(result.clock)
+  const logSimulationExecutions = useCallback((executions?: SimulationRuntimeExecutionLogEntry[]) => {
+    const newExecutions = (executions ?? []).filter(
+      (execution) => execution.sequence > lastSimulationExecutionSequenceRef.current
+    )
+
+    if (newExecutions.length === 0) {
+      return
     }
+
+    lastSimulationExecutionSequenceRef.current = Math.max(
+      ...newExecutions.map((execution) => execution.sequence)
+    )
+
+    console.groupCollapsed(`[Simulation] Executed ${newExecutions.length} queued task batch`)
+    console.table(createSimulationExecutionView(newExecutions))
+
+    for (const execution of newExecutions) {
+      console.info('[Simulation] Execution result', execution)
+    }
+
+    console.groupEnd()
+  }, [])
+
+  const applySimulationResult = useCallback(
+    (result: SimulationCommandResult) => {
+      if (result.clock) {
+        setSimulationClock(result.clock)
+      }
+
+      if (result.queue) {
+        setSimulationQueue(result.queue)
+      }
+
+      logSimulationExecutions(result.executions)
+    },
+    [logSimulationExecutions]
+  )
+
+  const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
+    applySimulationResult(result)
 
     if (!result.ok) {
       console.error('[Simulation] Command failed', result.error)
@@ -520,7 +622,7 @@ function App(): React.JSX.Element {
     }
 
     console.info(`[Simulation] ${label}`, result.clock)
-  }, [])
+  }, [applySimulationResult])
 
   const dispatchSimulationCommand = useCallback(
     async (command: SimulationCommand, label: string) => {
@@ -530,6 +632,138 @@ function App(): React.JSX.Element {
     },
     [logSimulationResult]
   )
+
+  const ensureDeviceLoRaAddress = useCallback(
+    async (
+      currentSnapshot: WorkspaceSnapshot,
+      device: WorkspaceSnapshotDevice,
+      label: string
+    ): Promise<{ snapshot: WorkspaceSnapshot; address: string } | null> => {
+      const existingAddress = getSnapshotLoRaAddress(device)
+
+      if (existingAddress) {
+        return { snapshot: currentSnapshot, address: existingAddress }
+      }
+
+      const module = getSnapshotLoRaModule(device)
+
+      if (!module) {
+        console.error(`[Simulation] ${label} must have a LoRa module`, {
+          deviceId: device.id
+        })
+        return null
+      }
+
+      const loraAddress = createDefaultLoRaAddress(device)
+      const result = await dispatchWorkspaceCommand({
+        type: 'workspace/assign-device-lora-address',
+        deviceId: device.id,
+        moduleId: module.id,
+        loraAddress
+      })
+
+      if (!result.ok || !result.snapshot) {
+        console.error(`[Simulation] Failed to assign LoRa address for ${label}`, {
+          deviceId: device.id,
+          loraAddress,
+          error: result.error
+        })
+        return null
+      }
+
+      const updatedDevice = result.snapshot.devices.find((nextDevice) => nextDevice.id === device.id)
+      const assignedAddress = updatedDevice ? getSnapshotLoRaAddress(updatedDevice) : undefined
+
+      if (!assignedAddress) {
+        console.error(`[Simulation] LoRa address was not available after assignment for ${label}`, {
+          deviceId: device.id,
+          loraAddress
+        })
+        return null
+      }
+
+      console.info(`[Simulation] Assigned LoRa address for ${label}`, {
+        deviceId: device.id,
+        loraAddress: assignedAddress
+      })
+
+      return {
+        snapshot: result.snapshot,
+        address: assignedAddress
+      }
+    },
+    [dispatchWorkspaceCommand]
+  )
+
+  const scheduleBasicTelemetry = useCallback(async () => {
+    if (!snapshot) {
+      console.error('[Simulation] Cannot schedule telemetry before a workspace exists')
+      return
+    }
+
+    if (!selectedDeviceId) {
+      console.error('[Simulation] Select a LoRa device before scheduling basic telemetry')
+      return
+    }
+
+    const sourceDevice = snapshot.devices.find((device) => device.id === selectedDeviceId)
+
+    if (!sourceDevice) {
+      console.error('[Simulation] Selected device is not in the current workspace', {
+        selectedDeviceId
+      })
+      return
+    }
+
+    if (!hasSnapshotLoRaModule(sourceDevice)) {
+      console.error('[Simulation] Selected device must have a LoRa module', {
+        deviceId: sourceDevice.id
+      })
+      return
+    }
+
+    const sourceAddress = await ensureDeviceLoRaAddress(snapshot, sourceDevice, 'selected device')
+
+    if (!sourceAddress) {
+      return
+    }
+
+    const targetDevice = findBasicTelemetryGatewayTarget(sourceAddress.snapshot, sourceDevice.id)
+
+    if (!targetDevice) {
+      console.error('[Simulation] No Gateway device with LoRa module is available')
+      return
+    }
+
+    const targetAddress = await ensureDeviceLoRaAddress(
+      sourceAddress.snapshot,
+      targetDevice,
+      'Gateway device'
+    )
+
+    if (!targetAddress) {
+      return
+    }
+
+    const result = await dispatchSimulationCommand(
+      {
+        type: 'simulation/schedule-basic-telemetry',
+        deviceId: sourceDevice.id,
+        targetAddress: targetAddress.address
+      },
+      `scheduled basic telemetry ${sourceDevice.id} -> ${targetAddress.address}`
+    )
+
+    if (!result.ok) {
+      return
+    }
+
+    console.info('[Simulation] Scheduled telemetry events', result.scheduledEventIds ?? [])
+
+    if (result.queue) {
+      console.table(createEventQueueView(result.queue))
+    }
+  }, [dispatchSimulationCommand, ensureDeviceLoRaAddress, selectedDeviceId, snapshot])
 
   const showSimulationClock = useCallback(() => {
     void window.api.simulation
@@ -544,13 +778,13 @@ function App(): React.JSX.Element {
           return
         }
 
+        applySimulationResult(result)
         console.groupCollapsed('[Debug] Simulation clock')
         console.table(createSimulationClockView(clock))
         console.info('Snapshot:', clock)
         console.groupEnd()
-        setSimulationClock(clock)
       })
-  }, [])
+  }, [applySimulationResult])
 
   const showEventDispatchDebug = useCallback(() => {
     const simulationTimeMs = simulationClock?.virtualTimeMs ?? 0
@@ -660,12 +894,15 @@ function App(): React.JSX.Element {
             `advanced by ${command.deltaRealMs}ms real time`
           )
           return
+        case 'schedule-basic-telemetry':
+          void scheduleBasicTelemetry()
+          return
         case 'show-clock-snapshot':
           showSimulationClock()
           return
       }
     },
-    [dispatchSimulationCommand, showSimulationClock]
+    [dispatchSimulationCommand, scheduleBasicTelemetry, showSimulationClock]
   )
 
   useEffect(() => {
@@ -690,6 +927,10 @@ function App(): React.JSX.Element {
               if (isMounted && simulationResult.clock) {
                 setSimulationClock(simulationResult.clock)
               }
+
+              if (isMounted && simulationResult.queue) {
+                setSimulationQueue(simulationResult.queue)
+              }
             })
         }
       })
@@ -700,9 +941,34 @@ function App(): React.JSX.Element {
   }, [])
 
   useEffect(() => {
+    let isMounted = true
+
+    const refreshSimulationSnapshot = (): void => {
+      void window.api.simulation
+        .dispatch({
+          type: 'simulation/get-clock-snapshot'
+        })
+        .then((result) => {
+          if (!isMounted) {
+            return
+          }
+
+          applySimulationResult(result)
+        })
+    }
+
+    const intervalId = window.setInterval(refreshSimulationSnapshot, 500)
+
+    return () => {
+      isMounted = false
+      window.clearInterval(intervalId)
+    }
+  }, [applySimulationResult])
+
+  useEffect(() => {
     const cleanupNewProject = window.api.menu.onNewProject(() => setIsNewProjectDialogOpen(true))
     const cleanupAddDevice = window.api.menu.onAddDevice((command) =>
-      requestAddDevice(command.placement)
+      requestAddDevice(command.placement, command.preset)
     )
     const cleanupCopySelectedDevice = window.api.menu.onCopySelectedDevice(copySelectedDevice)
     const cleanupPasteDevice = window.api.menu.onPasteDevice((command) =>
@@ -788,6 +1054,7 @@ function App(): React.JSX.Element {
         possibleConnections={snapshot?.possibleConnections ?? []}
         spatialGridVisibility={spatialGridVisibility}
         simulationClock={simulationClock}
+        simulationQueue={simulationQueue}
         addDeviceRequest={addDeviceRequest}
         pasteDeviceRequest={pasteDeviceRequest}
         onAddDeviceAt={addDeviceAt}

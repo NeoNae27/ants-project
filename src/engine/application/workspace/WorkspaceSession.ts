@@ -26,6 +26,7 @@ import type {
   UpdateModuleCommand,
   WorkspaceCommand,
   WorkspaceCommandResult,
+  WorkspaceDevicePreset,
   WorkspaceModulePatchDto,
   WorkspaceModuleTemplateDto,
   WorkspaceSessionEvent,
@@ -37,10 +38,18 @@ import { WorkspaceSessionError } from './WorkspaceSessionErrors'
 const DEFAULT_DEVICE_MODEL = 'ANT-UI-100'
 const DEFAULT_DEVICE_VERSION = '1.0.0'
 const DEFAULT_METERS_PER_UNIT = 10
+const LORA_SENSOR_DEVICE_MODEL = 'ANT-S'
+const LORA_GATEWAY_DEVICE_MODEL = 'ANT-G'
 
 type WorkspaceSessionDependencies = {
   moduleFactory?: ModuleFactory
   placementService?: WorkspacePlacementService
+}
+
+type DevicePresetDefaults = {
+  model?: string
+  role?: AddDeviceCommand['role']
+  modules?: WorkspaceModuleTemplateDto[]
 }
 
 type ClipboardDeviceDto = {
@@ -51,6 +60,56 @@ type ClipboardDeviceDto = {
 
 function createId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`
+}
+
+function createDefaultLoRaAddress(deviceId: string): string {
+  return `${deviceId}:lora`
+}
+
+function createLoRaNetworkTemplate(): WorkspaceModuleTemplateDto {
+  return {
+    kind: 'network',
+    name: 'LoRa network',
+    model: 'SX1276 Stub',
+    communication: {
+      protocol: 'lora',
+      maxRangeMeters: 10_000,
+      maxConnections: 8,
+      spreadingFactor: 12,
+      bandwidthHz: 125_000,
+      txPowerDbm: 14,
+      codingRate: '4/5',
+      sourceLabel: 'SX1276 simulation preset (datasheet-derived placeholder)',
+    },
+  }
+}
+
+function getDevicePresetDefaults(preset?: WorkspaceDevicePreset): DevicePresetDefaults {
+  switch (preset) {
+    case 'lora-sensor-node':
+      return {
+        model: LORA_SENSOR_DEVICE_MODEL,
+        role: 'node',
+        modules: [createLoRaNetworkTemplate()],
+      }
+    case 'lora-gateway':
+      return {
+        model: LORA_GATEWAY_DEVICE_MODEL,
+        role: 'gateway',
+        modules: [createLoRaNetworkTemplate()],
+      }
+    case 'generic-node':
+    case undefined:
+      return {
+        model: DEFAULT_DEVICE_MODEL,
+        role: 'node',
+      }
+    default:
+      throw new WorkspaceSessionError(
+        'WORKSPACE_SESSION_DEVICE_PRESET_UNKNOWN',
+        `Unknown device preset: ${String(preset)}`,
+      )
+  }
 }
 
 function toDeviceRole(role?: AddDeviceCommand['role']): DeviceRole {
@@ -107,6 +166,10 @@ function getLoRaModule(device: WorkspaceDeviceSnapshot): WorkspaceModuleSnapshot
 
 function getFirstLoRaModuleIdFromModules(modules: readonly DeviceModule[]): string | undefined {
   return modules.find((module) => module instanceof LoRaModule)?.id
+}
+
+function hasLoRaModuleTemplate(templates: readonly WorkspaceModuleTemplateDto[]): boolean {
+  return templates.some((template) => template.communication?.protocol === 'lora')
 }
 
 function createConnectionId(sourceDeviceId: string, targetDeviceId: string, sourceModuleId: string): string {
@@ -229,17 +292,25 @@ export class WorkspaceSession {
     const baseSnapshot = this.getSnapshot()
     const finalPosition = this.placementService.findFreePlacementNear(baseSnapshot, command.position)
     const deviceId = createId('device')
-    const modules = (command.modules ?? []).map((template) =>
+    const presetDefaults = getDevicePresetDefaults(command.preset)
+    const moduleTemplates = command.modules ?? presetDefaults.modules ?? []
+    const loraAddress = this.resolveLoRaAddressForNewDevice({
+      workspace,
+      deviceId,
+      loraAddress: command.loraAddress,
+      shouldGenerate: command.loraAddress === undefined && hasLoRaModuleTemplate(moduleTemplates),
+    })
+    const modules = moduleTemplates.map((template) =>
       this.moduleFactory.createModule(template, {
         deviceId,
-        loraAddress: command.loraAddress,
+        loraAddress,
       }),
     )
     const device = DeviceFactory.createDevice({
       id: deviceId,
-      model: command.model ?? DEFAULT_DEVICE_MODEL,
+      model: command.model ?? presetDefaults.model ?? DEFAULT_DEVICE_MODEL,
       version: DEFAULT_DEVICE_VERSION,
-      role: toDeviceRole(command.role),
+      role: toDeviceRole(command.role ?? presetDefaults.role),
       name: command.name ?? `Device ${baseSnapshot.devices.length + 1}`,
       x: finalPosition.x,
       y: finalPosition.y,
@@ -249,12 +320,12 @@ export class WorkspaceSession {
     const endpoints: NetworkEndpoint[] = []
     const loraModuleId = getFirstLoRaModuleIdFromModules(modules)
 
-    if (command.loraAddress && loraModuleId) {
+    if (loraAddress && loraModuleId) {
       endpoints.push({
         deviceId,
         moduleId: loraModuleId,
         protocol: 'lora',
-        address: command.loraAddress,
+        address: loraAddress,
       })
     }
 
@@ -384,6 +455,10 @@ export class WorkspaceSession {
     return this.getWorkspaceOrThrow().getSpatialIndexSnapshot()
   }
 
+  getRuntimeContext(): { workspace?: Workspace } {
+    return this.workspace ? { workspace: this.workspace } : {}
+  }
+
   private createLoRaConfigPatch(patch: WorkspaceModulePatchDto): LoRaModuleConfigPatch {
     const radioPatch: NonNullable<LoRaModuleConfigPatch['radio']> = {}
 
@@ -414,6 +489,29 @@ export class WorkspaceSession {
     return {
       radio: radioPatch,
     }
+  }
+
+  private resolveLoRaAddressForNewDevice(params: {
+    workspace: Workspace
+    deviceId: string
+    loraAddress?: string
+    shouldGenerate: boolean
+  }): string | undefined {
+    const address = params.loraAddress?.trim() || (params.shouldGenerate ? createDefaultLoRaAddress(params.deviceId) : undefined)
+
+    if (!address) {
+      return undefined
+    }
+
+    if (params.workspace.getDeviceByAddress(address)) {
+      throw new WorkspaceSessionError(
+        'LORA_ADDRESS_ALREADY_EXISTS',
+        `LoRa address already exists: ${address}`,
+        { loraAddress: address },
+      )
+    }
+
+    return address
   }
 
   private findPossibleConnections(snapshot: WorkspaceSnapshot): WorkspacePossibleConnection[] {

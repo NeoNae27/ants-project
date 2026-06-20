@@ -47,6 +47,7 @@ export type WorkspaceDevice = {
   }
   modules: WorkspaceModule[]
   bufferSize: number
+  receivedPacketCount: number
   x: number
   y: number
 }

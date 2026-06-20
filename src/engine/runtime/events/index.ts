@@ -4,12 +4,32 @@ export { EventDispatchError, isEventDispatchError } from './EventDispatcherError
 export { EventQueueError } from './EventQueueErrors'
 export { EventPriority } from './EventQueueTypes'
 export { InMemoryEventQueue } from './InMemoryEventQueue'
+export { createDeterministicLoRaPacket } from './DeterministicPacketFactory'
+export { createDeterministicTelemetry } from './DeterministicTelemetryFactory'
+export { createDefaultRuntimeEventHandlers } from './RuntimeEventHandlerRegistry'
+export { RuntimeEventType } from './RuntimeEventTypes'
 export {
   NoopHandler,
   SimulationLogEventType,
   SimulationLogHandler,
-  SimulationNoopEventType
+  SimulationNoopEventType,
+  DeviceStateChangeHandler,
+  GatewayPacketReceivedHandler,
+  PacketDeliveryHandler,
+  TelemetrySampleHandler,
+  TelemetrySendHandler
 } from './handlers'
+export {
+  findRuntimeDeviceByAddress,
+  findRuntimeDeviceById,
+  findRuntimeLoRaAddress,
+  findRuntimeLoRaEndpoint,
+  findRuntimeLoRaModule,
+  getRuntimeDeviceId,
+  isRuntimeGatewayDevice,
+  isRuntimeLoRaModule,
+  listRuntimeDevices
+} from './RuntimeEventContext'
 export type {
   DispatchContext,
   DispatchLoggerPort,
@@ -23,7 +43,8 @@ export type {
   EventDispatchStatus,
   EventDispatchTrace,
   EventHandler,
-  EventHandlerMap
+  EventHandlerMap,
+  RuntimeContextProvider
 } from './EventDispatcherTypes'
 export type {
   EventDispatchErrorCode,
@@ -46,4 +67,15 @@ export type {
   SimulationEventTarget,
   SimulationEventType
 } from './EventQueueTypes'
+export type { DeterministicPacketInput } from './DeterministicPacketFactory'
+export type { DeterministicTelemetryInput } from './DeterministicTelemetryFactory'
+export type {
+  DeviceStateChangePayload,
+  GatewayPacketReceivedPayload,
+  PacketDeliveryPayload,
+  RuntimeTelemetryPayload,
+  TelemetrySamplePayload,
+  TelemetrySendPayload
+} from './RuntimeEventPayloads'
+export type { RuntimeContextLookupSource } from './RuntimeEventContext'
 export type { SimulationLogPayload } from './handlers'
