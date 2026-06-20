@@ -1,5 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
+import {
+  ConsoleDispatchObserver,
+  EventDispatcher,
+  EventPriority,
+  InMemoryEventQueue,
+  NoopHandler,
+  SimulationLogHandler,
+  type EventDispatchBatchResult,
+  type EventQueueSnapshot,
+  type SimulationEvent
+} from '../../engine/runtime/events'
+import type {
+  SimulationCommand,
+  SimulationClockSnapshot,
+  SimulationCommandResult
+} from '../../shared/simulationRuntime'
 import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
@@ -136,8 +152,86 @@ function createSpatialIndexCellsView(
     .sort((left, right) => left.cell.localeCompare(right.cell))
 }
 
+function createSimulationClockView(
+  clock: NonNullable<SimulationCommandResult['clock']>
+): Array<Record<string, string | number | boolean>> {
+  return [
+    {
+      state: clock.state,
+      virtualTimeMs: clock.virtualTimeMs,
+      realElapsedMs: clock.realElapsedMs,
+      speed: `x${clock.speed}`,
+      isRunning: clock.isRunning
+    }
+  ]
+}
+
+function createEventQueueView(
+  snapshot: EventQueueSnapshot
+): Array<Record<string, string | number>> {
+  return snapshot.events.map((event) => ({
+    id: event.id,
+    type: event.type,
+    scheduledAt: event.scheduledAt,
+    createdAt: event.createdAt,
+    priority: event.priority,
+    sequence: event.sequence,
+    status: event.status,
+    source: event.sourceLabel ?? '',
+    target: event.targetLabel ?? ''
+  }))
+}
+
+function createDueEventView(events: SimulationEvent[]): Array<Record<string, string | number>> {
+  return events.map((event) => ({
+    id: event.id,
+    type: event.type,
+    scheduledAt: event.scheduledAt,
+    createdAt: event.createdAt,
+    priority: event.priority,
+    sequence: event.sequence,
+    status: event.status
+  }))
+}
+
+function createEventDispatchResultView(
+  batch: EventDispatchBatchResult
+): Array<Record<string, string | number | boolean>> {
+  return batch.results.map((result) => ({
+    eventId: result.eventId,
+    eventType: result.eventType,
+    ok: result.ok,
+    simulationTimeMs: result.simulationTimeMs,
+    durationWallMs: result.durationWallMs,
+    handler: result.handlerName ?? 'missing',
+    error: result.error?.code ?? '',
+    severity: result.error?.severity ?? '',
+    notes: result.notes?.join('; ') ?? '',
+    scheduled: result.scheduledEventIds.join(', ')
+  }))
+}
+
+function createEventDispatchTraceView(
+  batch: EventDispatchBatchResult
+): Array<Record<string, string | number | boolean>> {
+  return batch.traces.map((trace) => ({
+    dispatchId: trace.dispatchId,
+    eventId: trace.eventId,
+    eventType: trace.eventType,
+    status: trace.status,
+    scheduledAt: trace.scheduledAt,
+    simulationTimeMs: trace.simulationTimeMs,
+    durationWallMs: trace.durationWallMs ?? 0,
+    handlerFound: trace.handlerFound,
+    handler: trace.handlerName ?? 'missing',
+    scheduled: trace.scheduledEventIds.join(', '),
+    error: trace.error?.code ?? ''
+  }))
+}
+
 function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
+  const [simulationClock, setSimulationClock] = useState<SimulationClockSnapshot | null>(null)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [spatialGridVisibility, setSpatialGridVisibility] =
@@ -221,6 +315,17 @@ function App(): React.JSX.Element {
     ) => {
       const result = await window.api.workspace.dispatch(command)
       applyWorkspaceResult(result, options)
+
+      if (command.type === 'workspace/create-project') {
+        const simulationResult = await window.api.simulation.dispatch({
+          type: 'simulation/get-clock-snapshot'
+        })
+
+        if (simulationResult.clock) {
+          setSimulationClock(simulationResult.clock)
+        }
+      }
+
       return result
     },
     [applyWorkspaceResult]
@@ -399,6 +504,170 @@ function App(): React.JSX.Element {
     })
   }, [dispatchWorkspaceCommand])
 
+  const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
+    if (result.clock) {
+      setSimulationClock(result.clock)
+    }
+
+    if (!result.ok) {
+      console.error('[Simulation] Command failed', result.error)
+
+      if (result.clock) {
+        console.info('[Simulation] Clock snapshot', result.clock)
+      }
+
+      return
+    }
+
+    console.info(`[Simulation] ${label}`, result.clock)
+  }, [])
+
+  const dispatchSimulationCommand = useCallback(
+    async (command: SimulationCommand, label: string) => {
+      const result = await window.api.simulation.dispatch(command)
+      logSimulationResult(label, result)
+      return result
+    },
+    [logSimulationResult]
+  )
+
+  const showSimulationClock = useCallback(() => {
+    void window.api.simulation
+      .dispatch({
+        type: 'simulation/get-clock-snapshot'
+      })
+      .then((result) => {
+        const clock = result.clock
+
+        if (!result.ok || !clock) {
+          console.error('[Debug] Simulation clock unavailable', result.error)
+          return
+        }
+
+        console.groupCollapsed('[Debug] Simulation clock')
+        console.table(createSimulationClockView(clock))
+        console.info('Snapshot:', clock)
+        console.groupEnd()
+        setSimulationClock(clock)
+      })
+  }, [])
+
+  const showEventDispatchDebug = useCallback(() => {
+    const simulationTimeMs = simulationClock?.virtualTimeMs ?? 0
+    const eventQueue = new InMemoryEventQueue()
+
+    eventQueue.schedule({
+      id: 'debug-noop',
+      type: 'simulation.noop',
+      scheduledAt: simulationTimeMs,
+      createdAt: simulationTimeMs,
+      priority: EventPriority.SYSTEM,
+      source: { type: 'engine', id: 'debug-menu' },
+      payload: {}
+    })
+    eventQueue.schedule({
+      id: 'debug-log',
+      type: 'simulation.log',
+      scheduledAt: simulationTimeMs,
+      createdAt: simulationTimeMs,
+      priority: EventPriority.LOG,
+      source: { type: 'engine', id: 'debug-menu' },
+      payload: {
+        level: 'info',
+        message: 'simulation.log handler executed',
+        details: {
+          source: 'Debug menu',
+          simulationTimeMs
+        }
+      }
+    })
+
+    const queuedSnapshot = eventQueue.getSnapshot()
+    const dueEvents = eventQueue.popDueEvents(simulationTimeMs)
+    const afterPopSnapshot = eventQueue.getSnapshot()
+    const dispatcher = new EventDispatcher({
+      handlers: {
+        'simulation.noop': NoopHandler,
+        'simulation.log': SimulationLogHandler
+      },
+      observers: [new ConsoleDispatchObserver()]
+    })
+    const batch = dispatcher.dispatchMany(dueEvents, {
+      simulationTimeMs,
+      eventQueue,
+      logger: {
+        info(message, details) {
+          console.info(`[SimulationLog] ${message}`, details)
+        },
+        warn(message, details) {
+          console.warn(`[SimulationLog] ${message}`, details)
+        },
+        error(message, details) {
+          console.error(`[SimulationLog] ${message}`, details)
+        }
+      }
+    })
+    const afterDispatchSnapshot = eventQueue.getSnapshot()
+
+    console.groupCollapsed('[Debug] Event queue and dispatch')
+    console.info('Simulation time:', simulationTimeMs)
+    console.info('EventQueue before pop:', queuedSnapshot)
+    console.table(createEventQueueView(queuedSnapshot))
+    console.info('Due events:', dueEvents)
+    console.table(createDueEventView(dueEvents))
+    console.info('EventQueue after pop:', afterPopSnapshot)
+    console.info('EventDispatch batch:', batch)
+    console.table(createEventDispatchResultView(batch))
+    console.table(createEventDispatchTraceView(batch))
+    console.info('EventQueue after dispatch:', afterDispatchSnapshot)
+    console.groupEnd()
+  }, [simulationClock])
+
+  const handleSimulationMenuCommand = useCallback(
+    (command: Parameters<typeof window.api.menu.onSimulationCommand>[0] extends (
+      command: infer T
+    ) => void
+      ? T
+      : never) => {
+      switch (command.action) {
+        case 'start':
+          void dispatchSimulationCommand({ type: 'simulation/start' }, 'started')
+          return
+        case 'pause':
+          void dispatchSimulationCommand({ type: 'simulation/pause' }, 'paused')
+          return
+        case 'stop':
+          void dispatchSimulationCommand({ type: 'simulation/stop' }, 'stopped')
+          return
+        case 'reset':
+          void dispatchSimulationCommand({ type: 'simulation/reset' }, 'reset')
+          return
+        case 'set-speed':
+          void dispatchSimulationCommand(
+            {
+              type: 'simulation/set-speed',
+              speed: command.speed
+            },
+            `speed set to x${command.speed}`
+          )
+          return
+        case 'advance-clock':
+          void dispatchSimulationCommand(
+            {
+              type: 'simulation/advance-clock',
+              deltaRealMs: command.deltaRealMs
+            },
+            `advanced by ${command.deltaRealMs}ms real time`
+          )
+          return
+        case 'show-clock-snapshot':
+          showSimulationClock()
+          return
+      }
+    },
+    [dispatchSimulationCommand, showSimulationClock]
+  )
+
   useEffect(() => {
     let isMounted = true
 
@@ -413,6 +682,15 @@ function App(): React.JSX.Element {
       .then((result) => {
         if (isMounted) {
           applyWorkspaceResult(result)
+          void window.api.simulation
+            .dispatch({
+              type: 'simulation/get-clock-snapshot'
+            })
+            .then((simulationResult) => {
+              if (isMounted && simulationResult.clock) {
+                setSimulationClock(simulationResult.clock)
+              }
+            })
         }
       })
 
@@ -443,6 +721,9 @@ function App(): React.JSX.Element {
     })
     const cleanupShowDevicesRegister = window.api.menu.onShowDevicesRegister(showDevicesRegister)
     const cleanupShowSpatialIndex = window.api.menu.onShowSpatialIndex(showSpatialIndex)
+    const cleanupShowEventDispatchDebug =
+      window.api.menu.onShowEventDispatchDebug(showEventDispatchDebug)
+    const cleanupSimulationCommand = window.api.menu.onSimulationCommand(handleSimulationMenuCommand)
 
     return () => {
       cleanupNewProject()
@@ -454,6 +735,8 @@ function App(): React.JSX.Element {
       cleanupSetDebugging()
       cleanupShowDevicesRegister()
       cleanupShowSpatialIndex()
+      cleanupShowEventDispatchDebug()
+      cleanupSimulationCommand()
     }
   }, [
     copySelectedDevice,
@@ -461,7 +744,9 @@ function App(): React.JSX.Element {
     requestPasteDevice,
     deleteSelectedDevice,
     showDevicesRegister,
-    showSpatialIndex
+    showSpatialIndex,
+    showEventDispatchDebug,
+    handleSimulationMenuCommand
   ])
 
   useEffect(() => {
@@ -502,6 +787,7 @@ function App(): React.JSX.Element {
         selectedDevice={selectedDevice}
         possibleConnections={snapshot?.possibleConnections ?? []}
         spatialGridVisibility={spatialGridVisibility}
+        simulationClock={simulationClock}
         addDeviceRequest={addDeviceRequest}
         pasteDeviceRequest={pasteDeviceRequest}
         onAddDeviceAt={addDeviceAt}
