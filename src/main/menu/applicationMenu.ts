@@ -17,6 +17,15 @@ type SpatialGridVisibilityCommand = {
   visible: boolean
 }
 
+type SimulationMenuCommand =
+  | { action: 'start' }
+  | { action: 'pause' }
+  | { action: 'stop' }
+  | { action: 'reset' }
+  | { action: 'set-speed'; speed: 1 | 5 | 10 }
+  | { action: 'advance-clock'; deltaRealMs: number }
+  | { action: 'show-clock-snapshot' }
+
 const menuChannels = {
   newProject: 'menu:new-project',
   addDevice: 'menu:add-device',
@@ -26,7 +35,8 @@ const menuChannels = {
   setSpatialGridVisibility: 'menu:set-spatial-grid-visibility',
   setDebugging: 'menu:set-debugging',
   showDevicesRegister: 'menu:show-devices-register',
-  showSpatialIndex: 'menu:show-spatial-index'
+  showSpatialIndex: 'menu:show-spatial-index',
+  simulationCommand: 'menu:simulation-command'
 } as const
 
 function sendMenuCommand(window: BrowserWindow, channel: string, payload?: unknown): void {
@@ -64,6 +74,88 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
 
             sendMenuCommand(mainWindow, menuChannels.addDevice, command)
           }
+        }
+      ]
+    },
+    {
+      label: 'Simulation',
+      submenu: [
+        {
+          label: 'Start',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'start'
+            } satisfies SimulationMenuCommand)
+        },
+        {
+          label: 'Pause',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'pause'
+            } satisfies SimulationMenuCommand)
+        },
+        {
+          label: 'Stop',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'stop'
+            } satisfies SimulationMenuCommand)
+        },
+        {
+          label: 'Reset',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'reset'
+            } satisfies SimulationMenuCommand)
+        },
+        { type: 'separator' },
+        {
+          label: 'Speed',
+          submenu: [
+            {
+              label: 'x1',
+              type: 'radio',
+              checked: true,
+              click: () =>
+                sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+                  action: 'set-speed',
+                  speed: 1
+                } satisfies SimulationMenuCommand)
+            },
+            {
+              label: 'x5',
+              type: 'radio',
+              click: () =>
+                sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+                  action: 'set-speed',
+                  speed: 5
+                } satisfies SimulationMenuCommand)
+            },
+            {
+              label: 'x10',
+              type: 'radio',
+              click: () =>
+                sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+                  action: 'set-speed',
+                  speed: 10
+                } satisfies SimulationMenuCommand)
+            }
+          ]
+        },
+        {
+          label: 'Advance +1s',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'advance-clock',
+              deltaRealMs: 1000
+            } satisfies SimulationMenuCommand)
+        },
+        {
+          label: 'Show clock snapshot',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'show-clock-snapshot'
+            } satisfies SimulationMenuCommand)
         }
       ]
     },

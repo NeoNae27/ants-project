@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
+import type {
+  SimulationCommand,
+  SimulationCommandResult
+} from '../../shared/simulationRuntime'
 import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
@@ -134,6 +138,20 @@ function createSpatialIndexCellsView(
       devices: deviceIds.join(', ')
     }))
     .sort((left, right) => left.cell.localeCompare(right.cell))
+}
+
+function createSimulationClockView(
+  clock: NonNullable<SimulationCommandResult['clock']>
+): Array<Record<string, string | number | boolean>> {
+  return [
+    {
+      state: clock.state,
+      virtualTimeMs: clock.virtualTimeMs,
+      realElapsedMs: clock.realElapsedMs,
+      speed: `x${clock.speed}`,
+      isRunning: clock.isRunning
+    }
+  ]
 }
 
 function App(): React.JSX.Element {
@@ -399,6 +417,94 @@ function App(): React.JSX.Element {
     })
   }, [dispatchWorkspaceCommand])
 
+  const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
+    if (!result.ok) {
+      console.error('[Simulation] Command failed', result.error)
+
+      if (result.clock) {
+        console.info('[Simulation] Clock snapshot', result.clock)
+      }
+
+      return
+    }
+
+    console.info(`[Simulation] ${label}`, result.clock)
+  }, [])
+
+  const dispatchSimulationCommand = useCallback(
+    async (command: SimulationCommand, label: string) => {
+      const result = await window.api.simulation.dispatch(command)
+      logSimulationResult(label, result)
+      return result
+    },
+    [logSimulationResult]
+  )
+
+  const showSimulationClock = useCallback(() => {
+    void window.api.simulation
+      .dispatch({
+        type: 'simulation/get-clock-snapshot'
+      })
+      .then((result) => {
+        const clock = result.clock
+
+        if (!result.ok || !clock) {
+          console.error('[Debug] Simulation clock unavailable', result.error)
+          return
+        }
+
+        console.groupCollapsed('[Debug] Simulation clock')
+        console.table(createSimulationClockView(clock))
+        console.info('Snapshot:', clock)
+        console.groupEnd()
+      })
+  }, [])
+
+  const handleSimulationMenuCommand = useCallback(
+    (command: Parameters<typeof window.api.menu.onSimulationCommand>[0] extends (
+      command: infer T
+    ) => void
+      ? T
+      : never) => {
+      switch (command.action) {
+        case 'start':
+          void dispatchSimulationCommand({ type: 'simulation/start' }, 'started')
+          return
+        case 'pause':
+          void dispatchSimulationCommand({ type: 'simulation/pause' }, 'paused')
+          return
+        case 'stop':
+          void dispatchSimulationCommand({ type: 'simulation/stop' }, 'stopped')
+          return
+        case 'reset':
+          void dispatchSimulationCommand({ type: 'simulation/reset' }, 'reset')
+          return
+        case 'set-speed':
+          void dispatchSimulationCommand(
+            {
+              type: 'simulation/set-speed',
+              speed: command.speed
+            },
+            `speed set to x${command.speed}`
+          )
+          return
+        case 'advance-clock':
+          void dispatchSimulationCommand(
+            {
+              type: 'simulation/advance-clock',
+              deltaRealMs: command.deltaRealMs
+            },
+            `advanced by ${command.deltaRealMs}ms real time`
+          )
+          return
+        case 'show-clock-snapshot':
+          showSimulationClock()
+          return
+      }
+    },
+    [dispatchSimulationCommand, showSimulationClock]
+  )
+
   useEffect(() => {
     let isMounted = true
 
@@ -443,6 +549,7 @@ function App(): React.JSX.Element {
     })
     const cleanupShowDevicesRegister = window.api.menu.onShowDevicesRegister(showDevicesRegister)
     const cleanupShowSpatialIndex = window.api.menu.onShowSpatialIndex(showSpatialIndex)
+    const cleanupSimulationCommand = window.api.menu.onSimulationCommand(handleSimulationMenuCommand)
 
     return () => {
       cleanupNewProject()
@@ -454,6 +561,7 @@ function App(): React.JSX.Element {
       cleanupSetDebugging()
       cleanupShowDevicesRegister()
       cleanupShowSpatialIndex()
+      cleanupSimulationCommand()
     }
   }, [
     copySelectedDevice,
@@ -461,7 +569,8 @@ function App(): React.JSX.Element {
     requestPasteDevice,
     deleteSelectedDevice,
     showDevicesRegister,
-    showSpatialIndex
+    showSpatialIndex,
+    handleSimulationMenuCommand
   ])
 
   useEffect(() => {
