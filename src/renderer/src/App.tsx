@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
 import type {
   SimulationCommand,
+  SimulationClockSnapshot,
   SimulationCommandResult
 } from '../../shared/simulationRuntime'
 import type { WorkspaceCommandResult } from '../../shared/workspaceSession'
@@ -156,6 +157,7 @@ function createSimulationClockView(
 
 function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
+  const [simulationClock, setSimulationClock] = useState<SimulationClockSnapshot | null>(null)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
   const [spatialGridVisibility, setSpatialGridVisibility] =
@@ -239,6 +241,17 @@ function App(): React.JSX.Element {
     ) => {
       const result = await window.api.workspace.dispatch(command)
       applyWorkspaceResult(result, options)
+
+      if (command.type === 'workspace/create-project') {
+        const simulationResult = await window.api.simulation.dispatch({
+          type: 'simulation/get-clock-snapshot'
+        })
+
+        if (simulationResult.clock) {
+          setSimulationClock(simulationResult.clock)
+        }
+      }
+
       return result
     },
     [applyWorkspaceResult]
@@ -418,6 +431,10 @@ function App(): React.JSX.Element {
   }, [dispatchWorkspaceCommand])
 
   const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
+    if (result.clock) {
+      setSimulationClock(result.clock)
+    }
+
     if (!result.ok) {
       console.error('[Simulation] Command failed', result.error)
 
@@ -457,6 +474,7 @@ function App(): React.JSX.Element {
         console.table(createSimulationClockView(clock))
         console.info('Snapshot:', clock)
         console.groupEnd()
+        setSimulationClock(clock)
       })
   }, [])
 
@@ -519,6 +537,15 @@ function App(): React.JSX.Element {
       .then((result) => {
         if (isMounted) {
           applyWorkspaceResult(result)
+          void window.api.simulation
+            .dispatch({
+              type: 'simulation/get-clock-snapshot'
+            })
+            .then((simulationResult) => {
+              if (isMounted && simulationResult.clock) {
+                setSimulationClock(simulationResult.clock)
+              }
+            })
         }
       })
 
@@ -611,6 +638,7 @@ function App(): React.JSX.Element {
         selectedDevice={selectedDevice}
         possibleConnections={snapshot?.possibleConnections ?? []}
         spatialGridVisibility={spatialGridVisibility}
+        simulationClock={simulationClock}
         addDeviceRequest={addDeviceRequest}
         pasteDeviceRequest={pasteDeviceRequest}
         onAddDeviceAt={addDeviceAt}

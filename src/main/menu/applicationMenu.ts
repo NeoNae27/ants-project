@@ -82,6 +82,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
       submenu: [
         {
           label: 'Start',
+          accelerator: 'F5',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'start'
@@ -89,6 +90,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Pause',
+          accelerator: 'F6',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'pause'
@@ -96,6 +98,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Stop',
+          accelerator: 'Shift+F5',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'stop'
@@ -103,6 +106,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Reset',
+          accelerator: 'CmdOrCtrl+Shift+F5',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'reset'
@@ -115,6 +119,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             {
               label: 'x1',
               type: 'radio',
+              accelerator: 'CmdOrCtrl+Alt+1',
               checked: true,
               click: () =>
                 sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
@@ -125,6 +130,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             {
               label: 'x5',
               type: 'radio',
+              accelerator: 'CmdOrCtrl+Alt+5',
               click: () =>
                 sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
                   action: 'set-speed',
@@ -134,6 +140,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             {
               label: 'x10',
               type: 'radio',
+              accelerator: 'CmdOrCtrl+Alt+0',
               click: () =>
                 sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
                   action: 'set-speed',
@@ -144,6 +151,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Advance +1s',
+          accelerator: 'F10',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'advance-clock',
@@ -152,6 +160,7 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
         },
         {
           label: 'Show clock snapshot',
+          accelerator: 'CmdOrCtrl+Alt+T',
           click: () =>
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'show-clock-snapshot'

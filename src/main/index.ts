@@ -62,7 +62,7 @@ app.whenReady().then(() => {
   const mainWindow = createWindow()
   const workspaceSessionManager = new WorkspaceSessionManager()
   const simulationRuntimeSessionManager = new SimulationRuntimeSessionManager()
-  registerWorkspaceIpc(workspaceSessionManager)
+  registerWorkspaceIpc(workspaceSessionManager, simulationRuntimeSessionManager)
   registerSimulationIpc(simulationRuntimeSessionManager)
   createApplicationMenu(mainWindow)
 

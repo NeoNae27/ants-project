@@ -1,4 +1,5 @@
 import { SimulationClock } from '../../runtime/clock'
+import { SimulationClockSpeedMultiplier } from '../../runtime/clock'
 import type {
   SimulationCommand,
   SimulationCommandResult
@@ -65,6 +66,15 @@ export class SimulationRuntimeSessionManager {
 
   getClockSnapshot(): SimulationCommandResult {
     return this.withClock(this.clock.getSnapshot())
+  }
+
+  resetForNewWorkspace(): SimulationCommandResult {
+    try {
+      this.clock.setSpeed(SimulationClockSpeedMultiplier.X1)
+      return this.withClock(this.clock.reset())
+    } catch (error) {
+      return toErrorResult(error, this.clock)
+    }
   }
 
   private withClock(clock: ReturnType<SimulationClock['getSnapshot']>): SimulationCommandResult {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
+import type { SimulationClockSnapshot } from '../../../shared/simulationRuntime'
 import { DeviceInspector } from './DeviceInspector'
 import { WorkspaceNavigator } from './WorkspaceNavigator'
 import type {
@@ -23,6 +24,7 @@ type WorkspaceViewProps = {
   selectedDevice: WorkspaceDevice | null
   possibleConnections: WorkspacePossibleConnection[]
   spatialGridVisibility: WorkspaceSpatialGridVisibility
+  simulationClock: SimulationClockSnapshot | null
   addDeviceRequest: {
     id: number
     placement: AddDevicePlacement
@@ -105,6 +107,7 @@ export function WorkspaceView({
   selectedDevice,
   possibleConnections,
   spatialGridVisibility,
+  simulationClock,
   addDeviceRequest,
   pasteDeviceRequest,
   onAddDeviceAt,
@@ -166,6 +169,16 @@ export function WorkspaceView({
 
   const scale = fitScale * viewTransform.zoom
   const zoomPercent = Math.round(viewTransform.zoom * 100)
+  const simulationTimeLabel = useMemo(() => {
+    const totalSeconds = Math.floor((simulationClock?.virtualTimeMs ?? 0) / 1000)
+    const hours = Math.floor(totalSeconds / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
+    const seconds = totalSeconds % 60
+
+    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds
+      .toString()
+      .padStart(2, '0')}`
+  }, [simulationClock?.virtualTimeMs])
   const spatialGridCellSize = useMemo(
     () => Math.max(1, Math.min(project.width, project.height, 100)),
     [project.height, project.width]
@@ -613,18 +626,14 @@ export function WorkspaceView({
       </div>
 
       <footer className="workspace-status">
-        <span className="status-item status-project">{project.name}</span>
         <span className="status-item">
-          Workspace: {project.width} x {project.height} units
+          {project.width} x {project.height}
         </span>
         <span className="status-item">Unit: 1 = {project.unitScaleMeters} m</span>
         <span className="status-item">Zoom: {zoomPercent}%</span>
-        <span className="status-item">
-          Spatial grid: {spatialGridVisibility.lora ? 'LoRa' : 'Off'}
-        </span>
         <span className="status-item">Links: {visibleConnections.length}</span>
         <span className="status-item">
-          Selected: {selectedDevice ? `${selectedDevice.name} (${selectedDevice.x}, ${selectedDevice.y})` : 'None'}
+          Simulation: {simulationClock?.state ?? 'stopped'} {simulationTimeLabel} x{simulationClock?.speed ?? 1}
         </span>
       </footer>
     </section>

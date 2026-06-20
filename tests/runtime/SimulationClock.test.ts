@@ -174,6 +174,31 @@ describe('SimulationRuntimeSessionManager', () => {
     assert.equal(manager.dispatch({ type: 'simulation/get-clock-snapshot' }).clock?.speed, 5)
   })
 
+  it('resets clock time and speed for a new workspace', () => {
+    const manager = new SimulationRuntimeSessionManager()
+
+    manager.dispatch({ type: 'simulation/start' })
+    manager.dispatch({
+      type: 'simulation/set-speed',
+      speed: SimulationClockSpeedMultiplier.X10
+    })
+    manager.dispatch({
+      type: 'simulation/advance-clock',
+      deltaRealMs: 1000
+    })
+
+    const result = manager.resetForNewWorkspace()
+
+    assert.equal(result.ok, true)
+    assert.deepEqual(result.clock, {
+      state: 'stopped',
+      virtualTimeMs: 0,
+      realElapsedMs: 0,
+      speed: 1,
+      isRunning: false
+    })
+  })
+
   it('returns typed errors for invalid and unknown commands', () => {
     const manager = new SimulationRuntimeSessionManager()
 
