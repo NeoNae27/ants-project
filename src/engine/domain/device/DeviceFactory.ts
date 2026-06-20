@@ -18,8 +18,9 @@ export class DeviceFactory {
     x?: number
     y?: number
     modules?: readonly DeviceModule[]
+    nowMs?: number
   }): DeviceCore {
-    const now = Date.now()
+    const nowMs = params.nowMs ?? 0
     const device = new DeviceCore({
       id: params.id,
       model: params.model,
@@ -33,8 +34,8 @@ export class DeviceFactory {
         powerMode: 'normal'
       },
       meta: {
-        createdAt: now,
-        updatedAt: now,
+        createdAt: nowMs,
+        updatedAt: nowMs,
         location:
           params.x !== undefined && params.y !== undefined
             ? {
@@ -91,6 +92,11 @@ export class DeviceFactory {
      * Модули, которые нужно подключить к устройству при создании.
      */
     modules?: readonly DeviceModule[]
+
+    /**
+     * Current simulation time for initial metadata.
+     */
+    nowMs?: number
   }): DeviceCore {
     return this.createDevice({
       id: params.id,
@@ -100,7 +106,8 @@ export class DeviceFactory {
       role: DeviceRole.NODE,
       x: params.x,
       y: params.y,
-      modules: params.modules
+      modules: params.modules,
+      nowMs: params.nowMs
     })
   }
 }

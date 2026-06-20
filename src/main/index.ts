@@ -3,7 +3,9 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { createApplicationMenu } from './menu/applicationMenu'
+import { SimulationRuntimeSessionManager } from '../engine/application/simulation'
 import { WorkspaceSessionManager } from '../engine/application/workspace'
+import { registerSimulationIpc } from './simulation/simulationIpc'
 import { registerWorkspaceIpc } from './workspace/workspaceIpc'
 
 const DEFAULT_WINDOW_WIDTH = 1280
@@ -59,7 +61,9 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow()
   const workspaceSessionManager = new WorkspaceSessionManager()
-  registerWorkspaceIpc(workspaceSessionManager)
+  const simulationRuntimeSessionManager = new SimulationRuntimeSessionManager()
+  registerWorkspaceIpc(workspaceSessionManager, simulationRuntimeSessionManager)
+  registerSimulationIpc(simulationRuntimeSessionManager)
   createApplicationMenu(mainWindow)
 
   app.on('activate', function () {

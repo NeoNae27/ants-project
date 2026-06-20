@@ -55,6 +55,11 @@ export type DeviceCoreParams = {
    * Размер внутреннего буфера сообщений.
    */
   bufferCapacity?: number
+
+  /**
+   * Current simulation time for initial metadata when explicit meta timestamps are absent.
+   */
+  nowMs?: number
 }
 
 /**
@@ -113,7 +118,7 @@ export class DeviceCore {
 
   // Device Constructor
   constructor(params: DeviceCoreParams) {
-    const now = Date.now()
+    const nowMs = params.nowMs ?? params.meta?.createdAt ?? params.meta?.updatedAt ?? 0
 
     this.id = params.id
     this.model = params.model
@@ -126,8 +131,8 @@ export class DeviceCore {
     this.config = params.config
 
     this.meta = {
-      createdAt: params.meta?.createdAt ?? now,
-      updatedAt: params.meta?.updatedAt ?? now,
+      createdAt: params.meta?.createdAt ?? nowMs,
+      updatedAt: params.meta?.updatedAt ?? nowMs,
       location: params.meta?.location,
       tags: params.meta?.tags,
       description: params.meta?.description
@@ -261,11 +266,11 @@ export class DeviceCore {
   /**
    * Обновляет метаданные устройства и updatedAt.
    */
-  updateMeta(patch: Partial<DeviceMeta>): void {
+  updateMeta(patch: Partial<DeviceMeta>, nowMs = this.meta.updatedAt): void {
     this.meta = {
       ...this.meta,
       ...patch,
-      updatedAt: Date.now()
+      updatedAt: nowMs
     }
   }
 
@@ -347,7 +352,7 @@ export class DeviceCore {
    * Успешный переход записывает log-сообщение во внутренний buffer,
    * чтобы история переходов была доступна для debug и UI.
    */
-  transitionTo(next: DeviceLifecycleState, reason?: string): void {
+  transitionTo(next: DeviceLifecycleState, reason?: string, nowMs = this.meta.updatedAt): void {
     if (!this.canTransitionTo(next)) {
       throw new DeviceDomainError(
         `Invalid lifecycle transition: ${this.lifecycleState} -> ${next}`,
@@ -357,11 +362,11 @@ export class DeviceCore {
 
     const previous = this.lifecycleState
     this.lifecycleState = next
-    this.touch()
+    this.touch(nowMs)
 
     this.pushToBuffer({
       id: crypto.randomUUID(),
-      timestamp: Date.now(),
+      timestamp: nowMs,
       type: 'log',
       payload: {
         event: 'device.lifecycle_changed',
@@ -521,7 +526,7 @@ export class DeviceCore {
     }
   }
 
-  private touch(): void {
-    this.meta.updatedAt = Date.now()
+  private touch(nowMs = this.meta.updatedAt): void {
+    this.meta.updatedAt = nowMs
   }
 }
