@@ -1,8 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
-import type {
-  EventQueueSnapshot,
-  SimulationClockSnapshot
-} from '../../../shared/simulationRuntime'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type WheelEvent
+} from 'react'
+import type { EventQueueSnapshot, SimulationClockSnapshot } from '../../../shared/simulationRuntime'
 import gatewayIconUrl from '../assets/gateway-icon.svg'
 import sensorIconUrl from '../assets/sensor-icon.svg'
 import type { WorkspaceDevicePreset } from '../../../shared/workspaceSession'
@@ -24,6 +30,7 @@ import {
   createWorkspaceConnectionLines,
   filterConnectionsForMode,
   formatRadioLinkDebugLabel,
+  getDeviceLoRaModule,
   getRadioLinkStatusClassName
 } from './workspaceConnections'
 
@@ -54,6 +61,7 @@ type WorkspaceViewProps = {
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
   onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
+  onSendPingToGateway: (deviceId: string) => void
   onClearSelection: () => void
 }
 
@@ -82,10 +90,30 @@ type DeviceDragState = {
   moved: boolean
 }
 
+type SidePanelId = 'navigator' | 'inspector'
+
+type SidePanelResizeState = {
+  pointerId: number
+  panelId: SidePanelId
+  startX: number
+  startWidth: number
+}
+
+type DeviceContextMenuState = {
+  deviceId: string
+  x: number
+  y: number
+}
+
 const WORKSPACE_PADDING = 48
 const INITIAL_ZOOM = 2
 const MIN_ZOOM = 1
 const MAX_ZOOM = 12
+const DEFAULT_NAVIGATOR_WIDTH = 320
+const DEFAULT_INSPECTOR_WIDTH = 360
+const MIN_SIDE_PANEL_WIDTH = 220
+const MAX_SIDE_PANEL_WIDTH = 560
+const PANEL_RESIZER_WIDTH = 6
 
 function getDeviceIconUrl(device: WorkspaceDevice): string {
   return device.role === 'gateway' ? gatewayIconUrl : sensorIconUrl
@@ -138,11 +166,13 @@ export function WorkspaceView({
   onUpdateModule,
   onRemoveModule,
   onSelectDevice,
+  onSendPingToGateway,
   onClearSelection
 }: WorkspaceViewProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const dragRef = useRef<DragState | null>(null)
   const deviceDragRef = useRef<DeviceDragState | null>(null)
+  const panelResizeRef = useRef<SidePanelResizeState | null>(null)
   const handledAddDeviceRequestIdRef = useRef(addDeviceRequest.id)
   const handledPasteDeviceRequestIdRef = useRef(pasteDeviceRequest.id)
   const cursorWorkspacePointRef = useRef<WorkspacePoint | null>(null)
@@ -156,6 +186,11 @@ export function WorkspaceView({
     useState<WorkspaceConnectionViewMode>('selected')
   const [showWirelessLinks, setShowWirelessLinks] = useState(true)
   const [showLinkDebugInfo, setShowLinkDebugInfo] = useState(false)
+  const [navigatorWidth, setNavigatorWidth] = useState(DEFAULT_NAVIGATOR_WIDTH)
+  const [inspectorWidth, setInspectorWidth] = useState(DEFAULT_INSPECTOR_WIDTH)
+  const [isNavigatorVisible, setIsNavigatorVisible] = useState(true)
+  const [isInspectorVisible, setIsInspectorVisible] = useState(true)
+  const [deviceContextMenu, setDeviceContextMenu] = useState<DeviceContextMenuState | null>(null)
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -227,7 +262,31 @@ export function WorkspaceView({
       }),
     [selectedDeviceId, visibleConnections]
   )
-  const devicesById = useMemo(() => new Map(devices.map((device) => [device.id, device])), [devices])
+  const devicesById = useMemo(
+    () => new Map(devices.map((device) => [device.id, device])),
+    [devices]
+  )
+  const hasGatewayPingTarget = useCallback(
+    (sourceDeviceId: string): boolean =>
+      devices.some(
+        (device) =>
+          device.id !== sourceDeviceId &&
+          device.role === 'gateway' &&
+          Boolean(getDeviceLoRaModule(device))
+      ),
+    [devices]
+  )
+  const workspaceGridColumns = useMemo(
+    () =>
+      [
+        isNavigatorVisible ? `${navigatorWidth}px` : '0px',
+        isNavigatorVisible ? `${PANEL_RESIZER_WIDTH}px` : '0px',
+        'minmax(0, 1fr)',
+        isInspectorVisible ? `${PANEL_RESIZER_WIDTH}px` : '0px',
+        isInspectorVisible ? `${inspectorWidth}px` : '0px'
+      ].join(' '),
+    [inspectorWidth, isInspectorVisible, isNavigatorVisible, navigatorWidth]
+  )
 
   const clampCurrentViewTransform = useCallback(
     (transform: ViewTransform): ViewTransform =>
@@ -363,7 +422,20 @@ export function WorkspaceView({
     viewportSize.width
   ])
 
+  useEffect(() => {
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === 'Escape') {
+        setDeviceContextMenu(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape)
+
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [])
+
   function handleWheel(event: WheelEvent<HTMLDivElement>): void {
+    setDeviceContextMenu(null)
     event.preventDefault()
 
     const viewport = viewportRef.current
@@ -397,6 +469,7 @@ export function WorkspaceView({
   }
 
   function handlePointerDown(event: PointerEvent<HTMLDivElement>): void {
+    setDeviceContextMenu(null)
     rememberCursorPosition(event)
 
     if (event.button !== 0 && event.button !== 1) {
@@ -430,11 +503,13 @@ export function WorkspaceView({
       drag.moved = true
     }
 
-    setViewTransform((current) => clampCurrentViewTransform({
-      ...current,
-      x: drag.originX + dx,
-      y: drag.originY + dy
-    }))
+    setViewTransform((current) =>
+      clampCurrentViewTransform({
+        ...current,
+        x: drag.originX + dx,
+        y: drag.originY + dy
+      })
+    )
   }
 
   function handlePointerUp(event: PointerEvent<HTMLDivElement>): void {
@@ -456,6 +531,11 @@ export function WorkspaceView({
     event: PointerEvent<HTMLButtonElement>,
     device: WorkspaceDevice
   ): void {
+    if (event.button !== 0) {
+      return
+    }
+
+    setDeviceContextMenu(null)
     event.stopPropagation()
     event.currentTarget.setPointerCapture(event.pointerId)
 
@@ -472,6 +552,20 @@ export function WorkspaceView({
     }
 
     onSelectDevice(device)
+  }
+
+  function handleDeviceContextMenu(
+    event: MouseEvent<HTMLButtonElement>,
+    device: WorkspaceDevice
+  ): void {
+    event.preventDefault()
+    event.stopPropagation()
+    onSelectDevice(device)
+    setDeviceContextMenu({
+      deviceId: device.id,
+      x: event.clientX,
+      y: event.clientY
+    })
   }
 
   function handleDevicePointerMove(event: PointerEvent<HTMLButtonElement>): void {
@@ -512,22 +606,119 @@ export function WorkspaceView({
     deviceDragRef.current = null
   }
 
+  function handlePanelResizePointerDown(
+    event: PointerEvent<HTMLDivElement>,
+    panelId: SidePanelId
+  ): void {
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+
+    panelResizeRef.current = {
+      pointerId: event.pointerId,
+      panelId,
+      startX: event.clientX,
+      startWidth: panelId === 'navigator' ? navigatorWidth : inspectorWidth
+    }
+  }
+
+  function handlePanelResizePointerMove(event: PointerEvent<HTMLDivElement>): void {
+    const resize = panelResizeRef.current
+
+    if (!resize || resize.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const deltaX = event.clientX - resize.startX
+    const nextWidth =
+      resize.panelId === 'navigator' ? resize.startWidth + deltaX : resize.startWidth - deltaX
+
+    const clampedWidth = clamp(nextWidth, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH)
+
+    if (resize.panelId === 'navigator') {
+      setNavigatorWidth(clampedWidth)
+    } else {
+      setInspectorWidth(clampedWidth)
+    }
+  }
+
+  function handlePanelResizePointerUp(event: PointerEvent<HTMLDivElement>): void {
+    const resize = panelResizeRef.current
+
+    if (!resize || resize.pointerId !== event.pointerId) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    panelResizeRef.current = null
+  }
+
+  function resizePanelWithKeyboard(panelId: SidePanelId, direction: 'decrease' | 'increase'): void {
+    const delta = direction === 'increase' ? 24 : -24
+
+    if (panelId === 'navigator') {
+      setNavigatorWidth((currentWidth) =>
+        clamp(currentWidth + delta, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH)
+      )
+      return
+    }
+
+    setInspectorWidth((currentWidth) =>
+      clamp(currentWidth + delta, MIN_SIDE_PANEL_WIDTH, MAX_SIDE_PANEL_WIDTH)
+    )
+  }
+
   return (
     <section className="workspace-layout">
-      <div className="workspace-main">
-        <WorkspaceNavigator
-          devices={devices}
-          connections={possibleConnections}
-          radioLinks={radioLinks}
-          selectedDeviceId={selectedDeviceId}
-          viewMode={connectionViewMode}
-          showWirelessLinks={showWirelessLinks}
-          showLinkDebugInfo={showLinkDebugInfo}
-          onViewModeChange={setConnectionViewMode}
-          onShowWirelessLinksChange={setShowWirelessLinks}
-          onShowLinkDebugInfoChange={setShowLinkDebugInfo}
-          onSelectDevice={onSelectDevice}
-        />
+      <div className="workspace-main" style={{ gridTemplateColumns: workspaceGridColumns }}>
+        {isNavigatorVisible ? (
+          <WorkspaceNavigator
+            devices={devices}
+            connections={possibleConnections}
+            radioLinks={radioLinks}
+            selectedDeviceId={selectedDeviceId}
+            viewMode={connectionViewMode}
+            showWirelessLinks={showWirelessLinks}
+            showLinkDebugInfo={showLinkDebugInfo}
+            onViewModeChange={setConnectionViewMode}
+            onShowWirelessLinksChange={setShowWirelessLinks}
+            onShowLinkDebugInfoChange={setShowLinkDebugInfo}
+            onSelectDevice={onSelectDevice}
+            onRequestHide={() => setIsNavigatorVisible(false)}
+          />
+        ) : null}
+
+        {isNavigatorVisible ? (
+          <div
+            className="workspace-panel-resizer workspace-panel-resizer-left"
+            role="separator"
+            aria-label="Resize workspace panel"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SIDE_PANEL_WIDTH}
+            aria-valuemax={MAX_SIDE_PANEL_WIDTH}
+            aria-valuenow={navigatorWidth}
+            tabIndex={0}
+            title="Resize workspace panel"
+            onPointerDown={(event) => handlePanelResizePointerDown(event, 'navigator')}
+            onPointerMove={handlePanelResizePointerMove}
+            onPointerUp={handlePanelResizePointerUp}
+            onPointerCancel={handlePanelResizePointerUp}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft') {
+                resizePanelWithKeyboard('navigator', 'decrease')
+              }
+
+              if (event.key === 'ArrowRight') {
+                resizePanelWithKeyboard('navigator', 'increase')
+              }
+            }}
+          />
+        ) : null}
 
         <div
           className="workspace-viewport"
@@ -542,6 +733,84 @@ export function WorkspaceView({
           onPointerUp={handlePointerUp}
           onPointerCancel={handlePointerUp}
         >
+          <div className="workspace-panel-reopen-controls" aria-label="Side panel controls">
+            {!isNavigatorVisible ? (
+              <button
+                className="workspace-panel-reopen workspace-panel-reopen-left"
+                type="button"
+                title="Show workspace panel"
+                aria-label="Show workspace panel"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setIsNavigatorVisible(true)
+                }}
+              >
+                &gt;
+              </button>
+            ) : null}
+            {!isInspectorVisible ? (
+              <button
+                className="workspace-panel-reopen workspace-panel-reopen-right"
+                type="button"
+                title="Show inspector panel"
+                aria-label="Show inspector panel"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setIsInspectorVisible(true)
+                }}
+              >
+                &lt;
+              </button>
+            ) : null}
+          </div>
+
+          {deviceContextMenu ? (
+            <div
+              className="device-context-menu"
+              style={{
+                left: `${deviceContextMenu.x}px`,
+                top: `${deviceContextMenu.y}px`
+              }}
+              role="menu"
+              onContextMenu={(event) => event.preventDefault()}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              {(() => {
+                const contextDevice = devicesById.get(deviceContextMenu.deviceId)
+                const canSendPing =
+                  Boolean(contextDevice && getDeviceLoRaModule(contextDevice)) &&
+                  hasGatewayPingTarget(deviceContextMenu.deviceId)
+
+                return (
+                  <button
+                    className="device-context-menu-item"
+                    type="button"
+                    role="menuitem"
+                    disabled={!canSendPing}
+                    title={
+                      canSendPing
+                        ? 'Send PING message to Gateway'
+                        : 'LoRa source and Gateway target are required'
+                    }
+                    onClick={(event) => {
+                      event.stopPropagation()
+
+                      if (canSendPing) {
+                        onSendPingToGateway(deviceContextMenu.deviceId)
+                      }
+
+                      setDeviceContextMenu(null)
+                    }}
+                  >
+                    Send PING to Gateway
+                  </button>
+                )
+              })()}
+            </div>
+          ) : null}
+
           <div
             className="workspace-scene"
             style={{
@@ -610,7 +879,11 @@ export function WorkspaceView({
                     return (
                       <line
                         key={line.id}
-                        className={line.isSelected ? 'workspace-link-line is-selected' : 'workspace-link-line'}
+                        className={
+                          line.isSelected
+                            ? 'workspace-link-line is-selected'
+                            : 'workspace-link-line'
+                        }
                         x1={sourceDevice.x}
                         y1={sourceDevice.y}
                         x2={targetDevice.x}
@@ -686,8 +959,10 @@ export function WorkspaceView({
                     onPointerMove={handleDevicePointerMove}
                     onPointerUp={handleDevicePointerUp}
                     onPointerCancel={handleDevicePointerUp}
+                    onContextMenu={(event) => handleDeviceContextMenu(event, device)}
                     onClick={(event) => {
                       event.stopPropagation()
+                      setDeviceContextMenu(null)
                       onSelectDevice(device)
                     }}
                   >
@@ -704,15 +979,48 @@ export function WorkspaceView({
           </div>
         </div>
 
-        <DeviceInspector
-          device={selectedDevice}
-          simulationClock={simulationClock}
-          simulationQueue={simulationQueue}
-          onAddModule={onAddModule}
-          onUpdateDeviceRole={onUpdateDeviceRole}
-          onUpdateModule={onUpdateModule}
-          onRemoveModule={onRemoveModule}
-        />
+        {isInspectorVisible ? (
+          <div
+            className="workspace-panel-resizer workspace-panel-resizer-right"
+            role="separator"
+            aria-label="Resize inspector panel"
+            aria-orientation="vertical"
+            aria-valuemin={MIN_SIDE_PANEL_WIDTH}
+            aria-valuemax={MAX_SIDE_PANEL_WIDTH}
+            aria-valuenow={inspectorWidth}
+            tabIndex={0}
+            title="Resize inspector panel"
+            onPointerDown={(event) => handlePanelResizePointerDown(event, 'inspector')}
+            onPointerMove={handlePanelResizePointerMove}
+            onPointerUp={handlePanelResizePointerUp}
+            onPointerCancel={handlePanelResizePointerUp}
+            onKeyDown={(event) => {
+              if (event.key === 'ArrowLeft') {
+                resizePanelWithKeyboard('inspector', 'increase')
+              }
+
+              if (event.key === 'ArrowRight') {
+                resizePanelWithKeyboard('inspector', 'decrease')
+              }
+            }}
+          />
+        ) : null}
+
+        {isInspectorVisible ? (
+          <DeviceInspector
+            device={selectedDevice}
+            unitScaleMeters={project.unitScaleMeters}
+            possibleConnections={possibleConnections}
+            radioLinks={radioLinks}
+            simulationClock={simulationClock}
+            simulationQueue={simulationQueue}
+            onAddModule={onAddModule}
+            onUpdateDeviceRole={onUpdateDeviceRole}
+            onUpdateModule={onUpdateModule}
+            onRemoveModule={onRemoveModule}
+            onRequestHide={() => setIsInspectorVisible(false)}
+          />
+        ) : null}
       </div>
 
       <footer className="workspace-status">
@@ -724,7 +1032,8 @@ export function WorkspaceView({
         <span className="status-item">Links: {visibleConnections.length}</span>
         <span className="status-item">Radio: {radioLinks.length}</span>
         <span className="status-item">
-          Simulation: {simulationClock?.state ?? 'stopped'} {simulationTimeLabel} x{simulationClock?.speed ?? 1}
+          Simulation: {simulationClock?.state ?? 'stopped'} {simulationTimeLabel} x
+          {simulationClock?.speed ?? 1}
         </span>
       </footer>
     </section>

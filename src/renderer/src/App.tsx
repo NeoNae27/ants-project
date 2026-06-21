@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { DeviceRole } from '../../engine/domain/device/DeviceRole'
-import type { WorkspaceSnapshot, WorkspaceSpatialIndexSnapshot } from '../../engine/domain/workspace'
+import type {
+  WorkspaceSnapshot,
+  WorkspaceSpatialIndexSnapshot
+} from '../../engine/domain/workspace'
 import {
   ConsoleDispatchObserver,
   EventDispatcher,
@@ -19,10 +22,7 @@ import type {
   RadioLinkSnapshot,
   SimulationRuntimeExecutionLogEntry
 } from '../../shared/simulationRuntime'
-import type {
-  WorkspaceCommandResult,
-  WorkspaceDevicePreset
-} from '../../shared/workspaceSession'
+import type { WorkspaceCommandResult, WorkspaceDevicePreset } from '../../shared/workspaceSession'
 import { NewProjectDialog } from './workspace/NewProjectDialog'
 import { WorkspaceView } from './workspace/WorkspaceView'
 import type {
@@ -118,7 +118,9 @@ function getSnapshotLoRaAddress(device: WorkspaceSnapshotDevice): string | undef
   )
 }
 
-function getSnapshotLoRaModule(device: WorkspaceSnapshotDevice): WorkspaceSnapshotDevice['modules'][number] | undefined {
+function getSnapshotLoRaModule(
+  device: WorkspaceSnapshotDevice
+): WorkspaceSnapshotDevice['modules'][number] | undefined {
   return device.modules.find((module) => module.communication?.protocol === 'lora')
 }
 
@@ -147,7 +149,9 @@ function findBasicTelemetryGatewayTarget(
   return undefined
 }
 
-function createDevicesRegisterView(devices: WorkspaceDevice[]): Array<Record<string, string | number>> {
+function createDevicesRegisterView(
+  devices: WorkspaceDevice[]
+): Array<Record<string, string | number>> {
   return devices.map((device) => ({
     id: device.id,
     name: device.name,
@@ -362,7 +366,9 @@ function App(): React.JSX.Element {
       setSnapshot((currentSnapshot) => {
         if (options?.selectNewDevice) {
           const previousIds = new Set(currentSnapshot?.devices.map((device) => device.id) ?? [])
-          const createdDevice = result.snapshot?.devices.find((device) => !previousIds.has(device.id))
+          const createdDevice = result.snapshot?.devices.find(
+            (device) => !previousIds.has(device.id)
+          )
 
           if (createdDevice) {
             setSelectedDeviceId(createdDevice.id)
@@ -396,13 +402,16 @@ function App(): React.JSX.Element {
     [applyWorkspaceResult]
   )
 
-  const requestAddDevice = useCallback((placement: AddDevicePlacement, preset?: WorkspaceDevicePreset) => {
-    setAddDeviceRequest((currentRequest) => ({
-      id: currentRequest.id + 1,
-      placement,
-      ...(preset ? { preset } : {})
-    }))
-  }, [])
+  const requestAddDevice = useCallback(
+    (placement: AddDevicePlacement, preset?: WorkspaceDevicePreset) => {
+      setAddDeviceRequest((currentRequest) => ({
+        id: currentRequest.id + 1,
+        placement,
+        ...(preset ? { preset } : {})
+      }))
+    },
+    []
+  )
 
   const requestPasteDevice = useCallback((placement: AddDevicePlacement) => {
     setPasteDeviceRequest((currentRequest) => ({
@@ -583,28 +592,31 @@ function App(): React.JSX.Element {
     })
   }, [dispatchWorkspaceCommand])
 
-  const logSimulationExecutions = useCallback((executions?: SimulationRuntimeExecutionLogEntry[]) => {
-    const newExecutions = (executions ?? []).filter(
-      (execution) => execution.sequence > lastSimulationExecutionSequenceRef.current
-    )
+  const logSimulationExecutions = useCallback(
+    (executions?: SimulationRuntimeExecutionLogEntry[]) => {
+      const newExecutions = (executions ?? []).filter(
+        (execution) => execution.sequence > lastSimulationExecutionSequenceRef.current
+      )
 
-    if (newExecutions.length === 0) {
-      return
-    }
+      if (newExecutions.length === 0) {
+        return
+      }
 
-    lastSimulationExecutionSequenceRef.current = Math.max(
-      ...newExecutions.map((execution) => execution.sequence)
-    )
+      lastSimulationExecutionSequenceRef.current = Math.max(
+        ...newExecutions.map((execution) => execution.sequence)
+      )
 
-    console.groupCollapsed(`[Simulation] Executed ${newExecutions.length} queued task batch`)
-    console.table(createSimulationExecutionView(newExecutions))
+      console.groupCollapsed(`[Simulation] Executed ${newExecutions.length} queued task batch`)
+      console.table(createSimulationExecutionView(newExecutions))
 
-    for (const execution of newExecutions) {
-      console.info('[Simulation] Execution result', execution)
-    }
+      for (const execution of newExecutions) {
+        console.info('[Simulation] Execution result', execution)
+      }
 
-    console.groupEnd()
-  }, [])
+      console.groupEnd()
+    },
+    []
+  )
 
   const applySimulationResult = useCallback(
     (result: SimulationCommandResult) => {
@@ -625,21 +637,24 @@ function App(): React.JSX.Element {
     [logSimulationExecutions]
   )
 
-  const logSimulationResult = useCallback((label: string, result: SimulationCommandResult) => {
-    applySimulationResult(result)
+  const logSimulationResult = useCallback(
+    (label: string, result: SimulationCommandResult) => {
+      applySimulationResult(result)
 
-    if (!result.ok) {
-      console.error('[Simulation] Command failed', result.error)
+      if (!result.ok) {
+        console.error('[Simulation] Command failed', result.error)
 
-      if (result.clock) {
-        console.info('[Simulation] Clock snapshot', result.clock)
+        if (result.clock) {
+          console.info('[Simulation] Clock snapshot', result.clock)
+        }
+
+        return
       }
 
-      return
-    }
-
-    console.info(`[Simulation] ${label}`, result.clock)
-  }, [applySimulationResult])
+      console.info(`[Simulation] ${label}`, result.clock)
+    },
+    [applySimulationResult]
+  )
 
   const dispatchSimulationCommand = useCallback(
     async (command: SimulationCommand, label: string) => {
@@ -688,7 +703,9 @@ function App(): React.JSX.Element {
         return null
       }
 
-      const updatedDevice = result.snapshot.devices.find((nextDevice) => nextDevice.id === device.id)
+      const updatedDevice = result.snapshot.devices.find(
+        (nextDevice) => nextDevice.id === device.id
+      )
       const assignedAddress = updatedDevice ? getSnapshotLoRaAddress(updatedDevice) : undefined
 
       if (!assignedAddress) {
@@ -781,6 +798,74 @@ function App(): React.JSX.Element {
       console.table(createEventQueueView(result.queue))
     }
   }, [dispatchSimulationCommand, ensureDeviceLoRaAddress, selectedDeviceId, snapshot])
+
+  const sendPingToGateway = useCallback(
+    async (deviceId: string) => {
+      if (!snapshot) {
+        console.error('[Simulation] Cannot send PING before a workspace exists')
+        return
+      }
+
+      const sourceDevice = snapshot.devices.find((device) => device.id === deviceId)
+
+      if (!sourceDevice) {
+        console.error('[Simulation] PING source device is not in the current workspace', {
+          deviceId
+        })
+        return
+      }
+
+      if (!hasSnapshotLoRaModule(sourceDevice)) {
+        console.error('[Simulation] PING source must have a LoRa module', {
+          deviceId: sourceDevice.id
+        })
+        return
+      }
+
+      const sourceAddress = await ensureDeviceLoRaAddress(snapshot, sourceDevice, 'PING source')
+
+      if (!sourceAddress) {
+        return
+      }
+
+      const targetDevice = findBasicTelemetryGatewayTarget(sourceAddress.snapshot, sourceDevice.id)
+
+      if (!targetDevice) {
+        console.error('[Simulation] No Gateway device with LoRa module is available for PING')
+        return
+      }
+
+      const targetAddress = await ensureDeviceLoRaAddress(
+        sourceAddress.snapshot,
+        targetDevice,
+        'PING Gateway target'
+      )
+
+      if (!targetAddress) {
+        return
+      }
+
+      const result = await dispatchSimulationCommand(
+        {
+          type: 'simulation/send-ping-to-gateway',
+          deviceId: sourceDevice.id,
+          targetAddress: targetAddress.address
+        },
+        `scheduled PING ${sourceDevice.id} -> ${targetAddress.address}`
+      )
+
+      if (!result.ok) {
+        return
+      }
+
+      console.info('[Simulation] Scheduled PING event', result.scheduledEventIds ?? [])
+
+      if (result.queue) {
+        console.table(createEventQueueView(result.queue))
+      }
+    },
+    [dispatchSimulationCommand, ensureDeviceLoRaAddress, snapshot]
+  )
 
   const showSimulationClock = useCallback(() => {
     void window.api.simulation
@@ -875,11 +960,13 @@ function App(): React.JSX.Element {
   }, [simulationClock])
 
   const handleSimulationMenuCommand = useCallback(
-    (command: Parameters<typeof window.api.menu.onSimulationCommand>[0] extends (
-      command: infer T
-    ) => void
-      ? T
-      : never) => {
+    (
+      command: Parameters<typeof window.api.menu.onSimulationCommand>[0] extends (
+        command: infer T
+      ) => void
+        ? T
+        : never
+    ) => {
       switch (command.action) {
         case 'start':
           void dispatchSimulationCommand({ type: 'simulation/start' }, 'started')
@@ -988,12 +1075,14 @@ function App(): React.JSX.Element {
       requestPasteDevice(command.placement)
     )
     const cleanupDeleteSelectedDevice = window.api.menu.onDeleteSelectedDevice(deleteSelectedDevice)
-    const cleanupSetSpatialGridVisibility = window.api.menu.onSetSpatialGridVisibility((command) => {
-      setSpatialGridVisibility((current) => ({
-        ...current,
-        [command.technology]: command.visible
-      }))
-    })
+    const cleanupSetSpatialGridVisibility = window.api.menu.onSetSpatialGridVisibility(
+      (command) => {
+        setSpatialGridVisibility((current) => ({
+          ...current,
+          [command.technology]: command.visible
+        }))
+      }
+    )
     const cleanupSetDebugging = window.api.menu.onSetDebugging((command) => {
       setDebugEnabled(command.enabled)
       console.info(`[Debug] Debugging ${command.enabled ? 'enabled' : 'disabled'}`)
@@ -1002,7 +1091,9 @@ function App(): React.JSX.Element {
     const cleanupShowSpatialIndex = window.api.menu.onShowSpatialIndex(showSpatialIndex)
     const cleanupShowEventDispatchDebug =
       window.api.menu.onShowEventDispatchDebug(showEventDispatchDebug)
-    const cleanupSimulationCommand = window.api.menu.onSimulationCommand(handleSimulationMenuCommand)
+    const cleanupSimulationCommand = window.api.menu.onSimulationCommand(
+      handleSimulationMenuCommand
+    )
 
     return () => {
       cleanupNewProject()
@@ -1079,6 +1170,7 @@ function App(): React.JSX.Element {
         onUpdateModule={updateDeviceModule}
         onRemoveModule={removeDeviceModule}
         onSelectDevice={selectDevice}
+        onSendPingToGateway={sendPingToGateway}
         onClearSelection={() => setSelectedDeviceId(null)}
       />
 

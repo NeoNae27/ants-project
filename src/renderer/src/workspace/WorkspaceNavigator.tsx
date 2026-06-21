@@ -19,6 +19,7 @@ type WorkspaceNavigatorProps = {
   onShowWirelessLinksChange: (visible: boolean) => void
   onShowLinkDebugInfoChange: (visible: boolean) => void
   onSelectDevice: (device: WorkspaceDevice) => void
+  onRequestHide: () => void
 }
 
 type NavigatorSectionId = 'devices' | 'links'
@@ -29,6 +30,34 @@ function formatDistance(meters: number): string {
   }
 
   return `${Math.round(meters)} m`
+}
+
+function getDeviceStatusClassName(device: WorkspaceDevice): string {
+  const status = `${device.status} ${device.executionState}`.toLowerCase()
+
+  if (status.includes('fault') || status.includes('orphaned')) {
+    return 'is-fault'
+  }
+
+  if (status.includes('active') || status.includes('running')) {
+    return 'is-active'
+  }
+
+  if (status.includes('sleep')) {
+    return 'is-sleep'
+  }
+
+  if (status.includes('decommissioned') || status.includes('stopped')) {
+    return 'is-offline'
+  }
+
+  return 'is-idle'
+}
+
+function formatDeviceMeta(device: WorkspaceDevice): string {
+  const loraModule = getDeviceLoRaModule(device)
+
+  return `${device.role} · ${device.status} · ${loraModule ? loraModule.model : 'No LoRa'}`
 }
 
 export function WorkspaceNavigator({
@@ -42,7 +71,8 @@ export function WorkspaceNavigator({
   onViewModeChange,
   onShowWirelessLinksChange,
   onShowLinkDebugInfoChange,
-  onSelectDevice
+  onSelectDevice,
+  onRequestHide
 }: WorkspaceNavigatorProps): React.JSX.Element {
   const [collapsedSections, setCollapsedSections] = useState<Record<NavigatorSectionId, boolean>>({
     devices: false,
@@ -52,7 +82,9 @@ export function WorkspaceNavigator({
   const devicesById = new Map(devices.map((device) => [device.id, device]))
   const selectedDevice = selectedDeviceId ? devicesById.get(selectedDeviceId) : undefined
   const sourceDevices =
-    viewMode === 'selected' && selectedDevice ? [selectedDevice] : devices.filter((device) => getDeviceLoRaModule(device))
+    viewMode === 'selected' && selectedDevice
+      ? [selectedDevice]
+      : devices.filter((device) => getDeviceLoRaModule(device))
 
   function toggleSection(sectionId: NavigatorSectionId): void {
     setCollapsedSections((currentSections) => ({
@@ -72,6 +104,15 @@ export function WorkspaceNavigator({
     <aside className="workspace-navigator" aria-label="Workspace navigator">
       <header className="navigator-header">
         <span>WORKSPACE</span>
+        <button
+          className="side-panel-hide-button"
+          type="button"
+          title="Hide workspace panel"
+          aria-label="Hide workspace panel"
+          onClick={onRequestHide}
+        >
+          &lt;
+        </button>
       </header>
 
       <div className="navigator-content">
@@ -82,7 +123,9 @@ export function WorkspaceNavigator({
             aria-expanded={!collapsedSections.devices}
             onClick={() => toggleSection('devices')}
           >
-            <span className={collapsedSections.devices ? 'section-caret is-collapsed' : 'section-caret'} />
+            <span
+              className={collapsedSections.devices ? 'section-caret is-collapsed' : 'section-caret'}
+            />
             <h2>Devices</h2>
           </button>
           {!collapsedSections.devices ? (
@@ -90,17 +133,22 @@ export function WorkspaceNavigator({
               <div className="navigator-device-list">
                 {devices.map((device) => {
                   const isSelected = device.id === selectedDeviceId
-                  const loraModule = getDeviceLoRaModule(device)
+                  const deviceMeta = formatDeviceMeta(device)
 
                   return (
                     <button
                       className={isSelected ? 'navigator-device is-selected' : 'navigator-device'}
                       type="button"
                       key={device.id}
+                      title={`${device.name}: ${deviceMeta}`}
                       onClick={() => onSelectDevice(device)}
                     >
+                      <span
+                        className={`navigator-device-status ${getDeviceStatusClassName(device)}`}
+                        aria-hidden="true"
+                      />
                       <strong>{device.name}</strong>
-                      <span>{loraModule ? `LoRa: ${loraModule.model}` : 'No LoRa module'}</span>
+                      <span className="navigator-device-meta">{deviceMeta}</span>
                     </button>
                   )
                 })}
@@ -119,7 +167,9 @@ export function WorkspaceNavigator({
               aria-expanded={!collapsedSections.links}
               onClick={() => toggleSection('links')}
             >
-              <span className={collapsedSections.links ? 'section-caret is-collapsed' : 'section-caret'} />
+              <span
+                className={collapsedSections.links ? 'section-caret is-collapsed' : 'section-caret'}
+              />
               <h2>Links</h2>
             </button>
             <div className="navigator-segmented" role="group" aria-label="Connection view mode">
@@ -162,74 +212,80 @@ export function WorkspaceNavigator({
 
           {!collapsedSections.links ? (
             viewMode === 'selected' && !selectedDevice ? (
-            <div className="navigator-empty-line">Select a device to inspect possible links</div>
-          ) : sourceDevices.length > 0 ? (
-            <div className="navigator-link-tree">
-              {sourceDevices.map((sourceDevice) => {
-                const sourceConnections = connections.filter(
-                  (connection) => connection.sourceDeviceId === sourceDevice.id
-                )
-                const hasLoRa = Boolean(getDeviceLoRaModule(sourceDevice))
-                const isLinkGroupCollapsed = Boolean(collapsedLinkGroups[sourceDevice.id])
+              <div className="navigator-empty-line">Select a device to inspect possible links</div>
+            ) : sourceDevices.length > 0 ? (
+              <div className="navigator-link-tree">
+                {sourceDevices.map((sourceDevice) => {
+                  const sourceConnections = connections.filter(
+                    (connection) => connection.sourceDeviceId === sourceDevice.id
+                  )
+                  const hasLoRa = Boolean(getDeviceLoRaModule(sourceDevice))
+                  const isLinkGroupCollapsed = Boolean(collapsedLinkGroups[sourceDevice.id])
 
-                return (
-                  <div className="navigator-link-group" key={sourceDevice.id}>
-                    <div className="navigator-link-source-row">
-                      <button
-                        className="link-group-toggle"
-                        type="button"
-                        aria-label={isLinkGroupCollapsed ? 'Expand link group' : 'Collapse link group'}
-                        aria-expanded={!isLinkGroupCollapsed}
-                        onClick={() => toggleLinkGroup(sourceDevice.id)}
-                      >
-                        <span className={isLinkGroupCollapsed ? 'section-caret is-collapsed' : 'section-caret'} />
-                      </button>
-                      <button
-                        className="navigator-link-source"
-                        type="button"
-                        onClick={() => onSelectDevice(sourceDevice)}
-                      >
-                        <strong>{sourceDevice.name}</strong>
-                        <span>
-                          {hasLoRa
-                            ? `${sourceConnections.length} possible links`
-                            : 'No LoRa module'}
-                        </span>
-                      </button>
-                    </div>
-
-                    {!isLinkGroupCollapsed && sourceConnections.length > 0 ? (
-                      <div className="navigator-link-targets">
-                        {sourceConnections.map((connection) => {
-                          const targetDevice = devicesById.get(connection.targetDeviceId)
-
-                          return (
-                            <button
-                              className="navigator-link-target"
-                              type="button"
-                              key={connection.id}
-                              onClick={() => {
-                                if (targetDevice) {
-                                  onSelectDevice(targetDevice)
-                                }
-                              }}
-                            >
-                              <span>{targetDevice?.name ?? connection.targetDeviceId}</span>
-                              <strong>{formatDistance(connection.distanceMeters)}</strong>
-                            </button>
-                          )
-                        })}
+                  return (
+                    <div className="navigator-link-group" key={sourceDevice.id}>
+                      <div className="navigator-link-source-row">
+                        <button
+                          className="link-group-toggle"
+                          type="button"
+                          aria-label={
+                            isLinkGroupCollapsed ? 'Expand link group' : 'Collapse link group'
+                          }
+                          aria-expanded={!isLinkGroupCollapsed}
+                          onClick={() => toggleLinkGroup(sourceDevice.id)}
+                        >
+                          <span
+                            className={
+                              isLinkGroupCollapsed ? 'section-caret is-collapsed' : 'section-caret'
+                            }
+                          />
+                        </button>
+                        <button
+                          className="navigator-link-source"
+                          type="button"
+                          onClick={() => onSelectDevice(sourceDevice)}
+                        >
+                          <strong>{sourceDevice.name}</strong>
+                          <span>
+                            {hasLoRa
+                              ? `${sourceConnections.length} possible links`
+                              : 'No LoRa module'}
+                          </span>
+                        </button>
                       </div>
-                    ) : !isLinkGroupCollapsed ? (
-                      <div className="navigator-link-empty">No reachable LoRa devices</div>
-                    ) : null}
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="navigator-empty-line">No LoRa-capable devices</div>
-          )
+
+                      {!isLinkGroupCollapsed && sourceConnections.length > 0 ? (
+                        <div className="navigator-link-targets">
+                          {sourceConnections.map((connection) => {
+                            const targetDevice = devicesById.get(connection.targetDeviceId)
+
+                            return (
+                              <button
+                                className="navigator-link-target"
+                                type="button"
+                                key={connection.id}
+                                onClick={() => {
+                                  if (targetDevice) {
+                                    onSelectDevice(targetDevice)
+                                  }
+                                }}
+                              >
+                                <span>{targetDevice?.name ?? connection.targetDeviceId}</span>
+                                <strong>{formatDistance(connection.distanceMeters)}</strong>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      ) : !isLinkGroupCollapsed ? (
+                        <div className="navigator-link-empty">No reachable LoRa devices</div>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="navigator-empty-line">No LoRa-capable devices</div>
+            )
           ) : null}
         </section>
       </div>

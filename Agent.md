@@ -3,9 +3,9 @@
 Короткая карта проекта для следующих Codex-заходов. Сначала используй этот файл как навигацию, но перед рискованными изменениями сверяй детали с исходниками.
 
 - Project root: `C:\Users\nikit\Documents\Master Degree Project\ants-app`
-- Updated: `2026-06-20`
+- Updated: `2026-06-21`
 - App: desktop simulator for ANTS / Device Network Simulator.
-- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace/session layer, deterministic `SimulationEngine`, simulation clock, event queue/task queue UI, event dispatcher, LoRa telemetry runtime flow, Gateway packet receive flow, device presets, module factories, endpoint-based device registry, LoRa possible-link visualization, debug views, and expanded workspace validation.
+- Current state: Electron + React workspace MVP with a TypeScript engine domain, runtime workspace/session layer, deterministic `SimulationEngine`, simulation clock, event queue/task queue UI, event dispatcher, WirelessMedium-based LoRa telemetry delivery, Gateway packet receive flow, device presets/icons/editable roles, module factories, endpoint-based device registry, LoRa possible-link visualization, runtime wireless link overlay, debug views, and expanded workspace validation.
 
 ## Stack And Commands
 
@@ -54,21 +54,24 @@ Common commands from `package.json`:
   - `WorkspaceView.tsx` renders left navigator, central dotted workspace, device drag, zoom/pan, possible links, right inspector, and bottom status bar.
   - Bottom status bar shows workspace size, unit scale, zoom, visible link count, and simulation clock state/time/speed.
   - View menu can toggle a LoRa spatial-grid overlay on the workspace.
-  - `DeviceInspector.tsx` shows the runtime task queue, can add/remove modules, and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
-  - Renderer polls simulation snapshots for clock/queue/execution-log updates and logs new execution batches to DevTools console.
+  - Sensor and Gateway presets use dedicated SVG icons in the renderer assets.
+  - `DeviceInspector.tsx` shows the runtime task queue, can add/remove modules, edit device role, and edit LoRa settings including SF, coding rate, bandwidth, tx power, max range, and `maxConnections`.
+  - Renderer polls simulation snapshots for clock/queue/execution-log/radio-link updates and logs new execution batches to DevTools console.
+  - The workspace can render runtime wireless links behind devices; possible links and runtime radio links are kept as separate concepts.
+  - The links panel has toggles for runtime wireless links and debug labels.
 
 - Application/session layer:
   - `src/engine/application/workspace/WorkspaceSessionManager.ts` owns the live `WorkspaceSession | null`.
   - `WorkspaceSessionManager.dispatch(command)` always returns `WorkspaceCommandResult`, not raw snapshots.
   - `src/engine/application/workspace/WorkspaceSession.ts` is the application/controller layer for editing a project.
-  - `WorkspaceSession` implements create project, add/move/delete device, device presets, add/update/remove module, assign LoRa endpoint address, copy/paste, validate, get snapshot, runtime context export, and get spatial-index debug data.
+  - `WorkspaceSession` implements create project, add/move/delete device, update device role, device presets, add/update/remove module, assign LoRa endpoint address, copy/paste, validate, get snapshot, runtime context export, and get spatial-index debug data.
   - `workspace/add-device` supports `WorkspaceDevicePreset = 'generic-node' | 'lora-sensor-node' | 'lora-gateway'`; explicit command fields override preset defaults.
   - `WorkspaceSession` validates LoRa address uniqueness for generated/provided addresses before adding preset/endpoints; duplicate preset addresses return `LORA_ADDRESS_ALREADY_EXISTS`.
   - `WorkspacePlacementService` handles UX placement rules: free position near desired point, paste offsets/collision avoidance.
-  - `src/engine/application/simulation/SimulationRuntimeSessionManager.ts` owns the main-process `SimulationEngine`, `SimulationClock`, `InMemoryEventQueue`, and `EventDispatcher`.
-  - `SimulationRuntimeSessionManager` composes default runtime handlers, receives runtime context from `WorkspaceSessionManager`, validates `simulation/schedule-basic-telemetry`, exposes queue snapshots/execution logs, and can auto-step while simulation is running.
+  - `src/engine/application/simulation/SimulationRuntimeSessionManager.ts` owns the main-process `SimulationEngine`, `SimulationClock`, `InMemoryEventQueue`, `EventDispatcher`, and `WirelessMedium`.
+  - `SimulationRuntimeSessionManager` composes default runtime handlers, receives runtime context from `WorkspaceSessionManager`, validates `simulation/schedule-basic-telemetry`, exposes queue snapshots/execution logs/runtime radio links, and can auto-step while simulation is running.
   - Auto-run is enabled in Electron main composition; tests/default construction keep it off unless explicitly requested.
-  - Creating a new workspace through `workspace:dispatch` resets simulation engine state, queue, clock time, and speed to defaults.
+  - Creating a new workspace through `workspace:dispatch` resets simulation engine state, queue, clock time, speed, and stored radio links to defaults.
 
 - Runtime simulation primitives:
   - `src/engine/runtime/SimulationEngine.ts` coordinates deterministic runtime steps by advancing `SimulationClock`, popping due events from `EventQueue`, dispatching them through `EventDispatcher`, and returning structured step/run results.
@@ -78,8 +81,12 @@ Common commands from `package.json`:
   - Dispatch errors use `EventDispatchError` with `severity: recoverable | fatal`; batch dispatch continues after recoverable failures and stops after fatal failures.
   - Dispatch observers include `ConsoleDispatchObserver` for CLI/debug visibility.
   - Simple runtime handlers exist for `simulation.noop` and `simulation.log`.
-  - Default domain runtime handlers support `device.telemetry_sample`, `device.telemetry_send`, `wireless.packet_delivery`, `gateway.packet_received`, and `device.state_change`.
-  - Telemetry flow is deterministic: sample generates telemetry from simulation time, send creates deterministic LoRa packets, delivery pushes to target LoRa inbound buffer, and Gateway targets schedule `gateway.packet_received`.
+  - Default domain runtime handlers support `device.telemetry_sample`, `device.telemetry_send`, `wireless.packet_delivery`, `wireless.packet_lost`, `gateway.packet_received`, and `device.state_change`.
+  - Telemetry flow is deterministic: sample generates telemetry from simulation time, send creates deterministic LoRa packets, `WirelessMedium` evaluates radio candidates, schedules existing `wireless.packet_delivery` for deliverable links, and schedules `wireless.packet_lost` for rejected evaluated links.
+  - `wireless.packet_delivery` pushes the original LoRa packet into the target LoRa inbound buffer; Gateway targets then schedule `gateway.packet_received`.
+  - `src/engine/runtime/radio/*` contains radio packet normalization, link snapshots, channel model contracts, path loss, link budget, `WirelessMedium`, `SimpleChannelModel`, and `LinkBudgetChannelModel`.
+  - `toRadioPacketFromLoRaPacket(...)` maps `packetId -> id`, `radio.powerDbm -> radio.txPowerDbm`, and `radio.rangeMeters -> radio.candidateSearchRadiusMeters`, while preserving the original `LoRaPacket` in `meta.originalPacket`.
+  - `LinkBudgetChannelModel` treats `candidateSearchRadiusMeters` as a hard simulation/passport range cap before compatibility and link-budget checks. Distances `<=` the cap continue to link-budget evaluation; distances `>` the cap return `lost / OUT_OF_RANGE`.
   - `SimulationEngine` accepts an optional `RuntimeContextProvider`; app/session composition passes workspace context without making the engine depend on `WorkspaceSessionManager`.
   - `src/engine/runtime/clock` contains standalone `SimulationClock`, speed constants, snapshots, and typed errors.
   - `SimulationClock` stores virtual time in milliseconds and is the source of simulation time. It exposes `getNowMs()`, `advanceBy(deltaMs)`, `setSpeed()`, `pause()`, `resume()`, `isPaused()`, and `reset()`. Legacy `start()` and `advance(deltaRealMs)` remain as compatibility aliases.
@@ -87,7 +94,7 @@ Common commands from `package.json`:
 
 - Shared command contracts:
   - `src/shared/workspaceSession.ts` defines `WorkspaceCommand`, `WorkspaceDevicePreset`, command variants, `WorkspaceCommandResult`, events, module templates, module patches, validation mode, and debug result DTO hooks.
-  - `src/shared/simulationRuntime.ts` defines simulation commands/results plus clock, engine, event queue, step result, telemetry scheduling, scheduled event ids, and execution log DTO exports.
+  - `src/shared/simulationRuntime.ts` defines simulation commands/results plus clock, engine, event queue, step result, telemetry scheduling, scheduled event ids, radio link snapshots, and execution log DTO exports.
   - Renderer/main/preload share these DTO types.
 
 - Engine workspace:
@@ -136,7 +143,7 @@ Application/controller layer for workspace editing.
 
 Application/controller layer for simulation runtime controls.
 
-- `SimulationRuntimeSessionManager.ts` - main-process owner of `SimulationEngine`, `SimulationClock`, `InMemoryEventQueue`, and `EventDispatcher`; dispatches simulation commands, schedules basic telemetry, tracks execution logs, optionally auto-steps when running, and exposes reset for new workspace.
+- `SimulationRuntimeSessionManager.ts` - main-process owner of `SimulationEngine`, `SimulationClock`, `InMemoryEventQueue`, `EventDispatcher`, and `WirelessMedium`; dispatches simulation commands, schedules basic telemetry, tracks execution logs and radio links, optionally auto-steps when running, and exposes reset for new workspace.
 - `index.ts` - barrel export.
 
 ### `src/engine/runtime`
@@ -149,6 +156,7 @@ Standalone simulation runtime primitives.
 - `events/handlers/*` - simple built-in handlers plus runtime telemetry, packet delivery, Gateway receive, and device state-change handlers.
 - `events/RuntimeEventContext.ts` - runtime workspace/registry lookup helpers used by handlers; keep these generic ports, not session-manager imports.
 - `events/RuntimeEventHandlerRegistry.ts` - default runtime handler map for telemetry/send/delivery/Gateway/state events.
+- `radio/*` - `WirelessMedium`, `RadioPacket` normalization, `RadioLinkSnapshot`, channel model contracts, path loss, link budget, and LoRa channel model implementations.
 - `index.ts` - exports runtime engine, clock, and events APIs.
 
 ### `src/engine/domain/workspace`
@@ -205,7 +213,7 @@ Generic module contracts and concrete/current module implementations.
 Cross-process DTO types.
 
 - `workspaceSession.ts` - `WorkspaceCommand`, `WorkspaceCommandResult`, command payloads, session events, module template/patch DTOs, validation mode, and debug DTO envelope.
-- `simulationRuntime.ts` - `SimulationCommand`, `SimulationCommandResult`, clock speed/snapshot DTOs, engine/event queue/step DTOs, telemetry scheduling command, and execution log DTOs.
+- `simulationRuntime.ts` - `SimulationCommand`, `SimulationCommandResult`, clock speed/snapshot DTOs, engine/event queue/step DTOs, telemetry scheduling command, optional `radioLinks`, and execution log DTOs.
 - Debug-capable command/result flow includes `workspace/get-spatial-index-debug` and `WorkspaceCommandResult.debug.spatialIndex`.
 
 ### `src/main`, `src/preload`, `src/renderer`
@@ -228,9 +236,11 @@ Electron and UI.
 - Add Device dispatches add-device with desired position. Add Sensor Node and Add Gateway dispatch the same command with presets. Session chooses final free placement.
 - Ctrl+D adds at cursor; menu add uses camera center.
 - Devices can be selected, dragged, copied/pasted, and deleted through session commands.
+- Device role can be edited from the inspector through session commands.
 - Modules can be added, edited, and removed through session commands from the right inspector.
 - Side panels show devices, possible LoRa links, queued simulation tasks, device details, modules, config, and stats.
-- Possible LoRa links are runtime-derived from snapshot/device/module/position data; no real connection state is persisted.
+- Possible LoRa links are derived from snapshot/device/module/position data; runtime wireless links come from simulation command results as `radioLinks` and are not stored in `SimulationEngineSnapshot`.
+- Runtime wireless links render behind devices with distinct reachable/weak/lost/invalid visual styles; debug labels are optional.
 - View menu can toggle visual LoRa spatial-grid overlay.
 - Debug menu can enable logs, show a devices register view in console, show a spatial index debug view in console, and show an event queue + event dispatch demo in console.
 - The event dispatch debug demo schedules `simulation.noop` and `simulation.log`, pops due events, dispatches them, and prints queue snapshots, dispatch batch results, and dispatch traces.
@@ -248,7 +258,13 @@ Electron and UI.
 - Device position is owned by `Workspace`, not `DeviceRegistry` or `DeviceCore`.
 - Module mutation should go through `Workspace.addModule/removeModule/updateLoRaModuleConfig/updateStubModuleConfig`; avoid mutating `DeviceCore` modules from `WorkspaceSession` or UI.
 - `DeviceCore` remains transport-agnostic.
-- `LoRaModule` only creates/holds packets and buffers. Delivery belongs to future `WirelessMedium`.
+- `LoRaModule` only creates/holds packets and buffers. Delivery belongs to `WirelessMedium`.
+- Keep using the existing `wireless.packet_delivery` runtime event for successful wireless delivery; do not introduce a replacement event name for delivery.
+- Failed evaluated wireless transmissions may schedule `wireless.packet_lost` with reason and link snapshot.
+- Do not put runtime `radioLinks` into `SimulationEngineSnapshot`; expose them through `SimulationCommandResult.radioLinks`.
+- On `simulation/reset` and `resetForNewWorkspace`, clear `WirelessMedium` links.
+- Preserve the LoRa range chain: `LoRaModule.config.radio.maxRangeMeters -> LoRaPacket.radio.rangeMeters -> RadioPacket.radio.candidateSearchRadiusMeters -> ChannelModel.evaluate(...)`.
+- Treat `maxRangeMeters` as a project/module-level simulation cap, not as the physical link budget itself. `LinkBudgetChannelModel` must reject `distanceMeters > candidateSearchRadiusMeters` as `OUT_OF_RANGE`; the link budget only decides reachability inside that cap.
 - `WorkspaceSnapshot` must stay serializable and independent from internal maps/classes.
 - `SimulationEngine` is a coordinator only: it must not branch on event types or implement LoRa/routing/wireless/backend logic.
 - `SimulationEngine.step(deltaRealMs)` accepts real elapsed milliseconds; clock speed determines the resulting simulation-time delta.
@@ -276,13 +292,14 @@ Electron and UI.
 - `tests/runtime/RuntimeEventHandlers.test.ts` - deterministic telemetry, packet delivery, wireless fallback, and device state-change handlers.
 - `tests/runtime/TelemetryRuntimeFlow.test.ts` - end-to-end telemetry queue/send/delivery flow, schedule-basic-telemetry command validation, and auto-run execution logging.
 - `tests/runtime/GatewayPacketReceiveFlow.test.ts` - Gateway packet received handler, Gateway-only receive scheduling, and inbound/logging flow.
+- `tests/runtime/RadioRuntime.test.ts` - radio packet normalization, path loss, link budget/channel compatibility, `WirelessMedium`, radio link snapshots, reset behavior, hard range cap, and out-of-range delivery regressions.
 - `tests/types/DeviceSnapshot.test-d.ts` - type-level device snapshot checks.
 
 ## Planned But Not Implemented Yet
 
-- Full `SimulationSession`, real `WirelessMedium`, `ChannelModel`, and `MetricsCollector`.
+- Full `SimulationSession` and `MetricsCollector`.
 - Real runtime scenarios beyond the current deterministic telemetry demo flow.
-- RSSI/SNR/path loss, interference, collisions, routing, ACK/retry, packet deduplication, and real LoRa physics.
+- Interference, collisions, terrain, routing, ADR, ACK/retry, packet deduplication, and richer LoRa physics beyond the current range cap plus link-budget model.
 - Persistence/save/load/import/export.
 - Real sensor/power/compute/storage modules beyond `StubModule`.
 - Backend integration for telemetry ingest.
@@ -294,13 +311,14 @@ Electron and UI.
 - `WorkspaceConnections.test.ts` covers legacy renderer helpers; canonical possible links now come from `WorkspaceSession.getSnapshot()`.
 - `assignDeviceLoRaAddress` needs a LoRa-capable module; without a module endpoint target it should fail rather than creating a device-level address.
 - `maxConnections` limits displayed/derived outgoing LoRa candidates, not real network capacity or packet routing.
+- `maxRangeMeters` is a hard simulation/passport cap for delivery. Even if the link-budget math would theoretically pass beyond that distance, `LinkBudgetChannelModel` returns `OUT_OF_RANGE`.
 - `SimulationClock` is deterministic/manual: it advances only via explicit commands, not by wall-clock timers. It is the source of simulation time for future runtime logic.
 - `SimulationEngine` owns runtime state (`idle | running | paused | stopped | error`) separately from clock state and requires `reset()` before stepping again after engine-level errors.
 - App-level auto-run is a `SimulationRuntimeSessionManager` concern enabled in Electron main; default tests can construct the manager with auto-run disabled.
 - `EventQueue` only stores scheduled future events; cancelled events are removed, and processed status is returned on popped copies.
 - `EventDispatcher` does not pop from `EventQueue` and does not advance time. It dispatches events that the caller already popped as due.
 - `simulation.noop` and `simulation.log` are simple runtime/debug handlers. Domain demo handlers now live under namespaced runtime events such as `device.telemetry_sample`, `wireless.packet_delivery`, and `gateway.packet_received`.
-- `schedule-basic-telemetry` is debug/demo behavior: target selection is handled in UI/session command flow, not routing logic inside packet delivery handlers.
+- `schedule-basic-telemetry` is debug/demo behavior. Delivery still goes through `WirelessMedium`; direct target lookup is intentionally kept so explicit out-of-range Gateways can produce lost-link snapshots.
 - `Workspace.validate()` defaults to project mode. Use `workspace.validate({ mode: 'network' })` or `workspace/validate-project` with `mode: 'network'` when gateway/path checks should apply.
 - Spatial index console output is debug DTO data from engine/session, not a renderer-owned source of truth.
 - No database or JSON persistence layer exists yet.

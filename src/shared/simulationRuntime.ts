@@ -1,7 +1,4 @@
-import type {
-  SimulationClockSnapshot,
-  SimulationClockSpeed
-} from '../engine/runtime/clock'
+import type { SimulationClockSnapshot, SimulationClockSpeed } from '../engine/runtime/clock'
 import type {
   EventQueueSnapshot,
   RadioLinkSnapshot,
@@ -58,6 +55,14 @@ export type SimulationScheduleBasicTelemetryCommand = {
   deliveryDelayMs?: number
 }
 
+export type SimulationSendPingToGatewayCommand = {
+  type: 'simulation/send-ping-to-gateway'
+  deviceId: string
+  targetAddress: string
+  dueInMs?: number
+  deliveryDelayMs?: number
+}
+
 export type SimulationCommand =
   | SimulationStartCommand
   | SimulationPauseCommand
@@ -67,6 +72,7 @@ export type SimulationCommand =
   | SimulationAdvanceClockCommand
   | SimulationGetClockSnapshotCommand
   | SimulationScheduleBasicTelemetryCommand
+  | SimulationSendPingToGatewayCommand
 
 export type SimulationRuntimeExecutionLogEntry = {
   sequence: number
