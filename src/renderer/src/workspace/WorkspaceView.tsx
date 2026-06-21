@@ -3,6 +3,8 @@ import type {
   EventQueueSnapshot,
   SimulationClockSnapshot
 } from '../../../shared/simulationRuntime'
+import gatewayIconUrl from '../assets/gateway-icon.svg'
+import sensorIconUrl from '../assets/sensor-icon.svg'
 import type { WorkspaceDevicePreset } from '../../../shared/workspaceSession'
 import { DeviceInspector } from './DeviceInspector'
 import { WorkspaceNavigator } from './WorkspaceNavigator'
@@ -82,6 +84,10 @@ const WORKSPACE_PADDING = 48
 const INITIAL_ZOOM = 2
 const MIN_ZOOM = 1
 const MAX_ZOOM = 12
+
+function getDeviceIconUrl(device: WorkspaceDevice): string {
+  return device.role === 'gateway' ? gatewayIconUrl : sensorIconUrl
+}
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
@@ -665,7 +671,7 @@ export function WorkspaceView({
                 return (
                   <button
                     key={device.id}
-                    className={`workspace-device${isSelected ? ' is-selected' : ''}`}
+                    className={`workspace-device workspace-device-${device.role}${isSelected ? ' is-selected' : ''}`}
                     type="button"
                     style={{
                       left: `${device.x}px`,
@@ -681,7 +687,14 @@ export function WorkspaceView({
                       event.stopPropagation()
                       onSelectDevice(device)
                     }}
-                  />
+                  >
+                    <img
+                      className="workspace-device-icon"
+                      src={getDeviceIconUrl(device)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </button>
                 )
               })}
             </div>
