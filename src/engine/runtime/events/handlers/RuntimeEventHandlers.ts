@@ -20,7 +20,8 @@ import type {
   GatewayPacketReceivedPayload,
   PacketDeliveryPayload,
   TelemetrySamplePayload,
-  TelemetrySendPayload
+  TelemetrySendPayload,
+  WirelessPacketLostPayload
 } from '../RuntimeEventPayloads'
 import { RuntimeEventType } from '../RuntimeEventTypes'
 
@@ -28,7 +29,11 @@ const DEFAULT_SEND_DELAY_MS = 1
 const DEFAULT_DELIVERY_DELAY_MS = 100
 
 type WirelessMediumPort = {
-  transmit(packet: LoRaPacket, context: DispatchContext): unknown
+  transmit(
+    packet: LoRaPacket,
+    context: DispatchContext,
+    options?: { sourceDeviceId?: string; parentEventId?: string }
+  ): unknown
 }
 
 type RuntimeMetricsCollectorPort = {
@@ -163,7 +168,10 @@ export const TelemetrySendHandler: EventHandler =
     const wirelessMedium = toWirelessMedium(context.wirelessMedium)
 
     if (wirelessMedium) {
-      wirelessMedium.transmit(packet, context)
+      const transmissionResult = wirelessMedium.transmit(packet, context, {
+        sourceDeviceId: payload.deviceId,
+        parentEventId: event.id
+      })
       toMetricsCollector(context.metricsCollector)?.recordPacketSent?.({
         packet,
         simulationTimeMs: context.simulationTimeMs
@@ -171,6 +179,7 @@ export const TelemetrySendHandler: EventHandler =
       context.logger?.debug?.('packet_transmit_requested', { packetId: packet.packetId })
 
       return {
+        scheduledEventIds: getScheduledEventIds(transmissionResult),
         notes: [`packet transmit requested: ${packet.packetId}`]
       }
     }
@@ -308,6 +317,31 @@ export const PacketDeliveryHandler: EventHandler =
 
     return {
       notes: [`packet delivered: ${payload.packet.packetId}`]
+    }
+  }
+
+export const PacketLostHandler: EventHandler =
+  function PacketLostHandler(event, context) {
+    const payload = requirePacketLostPayload(event)
+
+    toMetricsCollector(context.metricsCollector)?.recordHandlerFailure?.({
+      packet: payload.packet ?? payload.radioPacket,
+      reason: payload.reason,
+      link: payload.link,
+      simulationTimeMs: context.simulationTimeMs
+    })
+    context.logger?.warn?.('wireless.packet_lost', {
+      packetId: payload.radioPacket.id,
+      sourceDeviceId: payload.sourceDeviceId,
+      targetDeviceId: payload.targetDeviceId,
+      targetAddress: payload.targetAddress,
+      reason: payload.reason,
+      link: payload.link,
+      lostAtSimulationMs: payload.lostAtSimulationMs
+    })
+
+    return {
+      notes: [`packet lost: ${payload.radioPacket.id} (${payload.reason})`]
     }
   }
 
@@ -455,9 +489,50 @@ function requirePacketDeliveryPayload(event: SimulationEvent): PacketDeliveryPay
     packet: payload.packet as LoRaPacket,
     targetAddress,
     ...(typeof payload.targetDeviceId === 'string' ? { targetDeviceId: payload.targetDeviceId } : {}),
+    ...(typeof payload.sourceDeviceId === 'string' ? { sourceDeviceId: payload.sourceDeviceId } : {}),
     ...(typeof payload.sentAtSimulationMs === 'number'
       ? { sentAtSimulationMs: payload.sentAtSimulationMs }
-      : {})
+      : {}),
+    ...(isRecord(payload.link) ? { link: payload.link as PacketDeliveryPayload['link'] } : {})
+  }
+}
+
+function requirePacketLostPayload(event: SimulationEvent): WirelessPacketLostPayload {
+  const payload = requireRecord(event.payload, event)
+
+  if (!isRecord(payload.radioPacket) || typeof payload.radioPacket.id !== 'string') {
+    fail('INVALID_EVENT_PAYLOAD', 'radioPacket payload is required', { eventId: event.id })
+  }
+
+  if (!isRecord(payload.link)) {
+    fail('INVALID_EVENT_PAYLOAD', 'link snapshot is required', { eventId: event.id })
+  }
+
+  const sourceDeviceId = requireNonEmptyString(
+    payload.sourceDeviceId,
+    event,
+    'DEVICE_ID_REQUIRED',
+    'sourceDeviceId'
+  )
+  const reason = requireNonEmptyString(
+    payload.reason,
+    event,
+    'INVALID_EVENT_PAYLOAD',
+    'reason'
+  ) as WirelessPacketLostPayload['reason']
+
+  return {
+    radioPacket: payload.radioPacket as WirelessPacketLostPayload['radioPacket'],
+    ...(isRecord(payload.packet) ? { packet: payload.packet as LoRaPacket } : {}),
+    sourceDeviceId,
+    ...(typeof payload.targetDeviceId === 'string' ? { targetDeviceId: payload.targetDeviceId } : {}),
+    ...(typeof payload.targetAddress === 'string' ? { targetAddress: payload.targetAddress } : {}),
+    reason,
+    link: payload.link as WirelessPacketLostPayload['link'],
+    lostAtSimulationMs:
+      typeof payload.lostAtSimulationMs === 'number'
+        ? payload.lostAtSimulationMs
+        : event.scheduledAt
   }
 }
 
@@ -571,6 +646,14 @@ function toWirelessMedium(value: unknown): WirelessMediumPort | undefined {
 
 function toMetricsCollector(value: unknown): RuntimeMetricsCollectorPort | undefined {
   return isRecord(value) ? (value as RuntimeMetricsCollectorPort) : undefined
+}
+
+function getScheduledEventIds(value: unknown): string[] {
+  if (!isRecord(value) || !Array.isArray(value.scheduledEventIds)) {
+    return []
+  }
+
+  return value.scheduledEventIds.filter((eventId): eventId is string => typeof eventId === 'string')
 }
 
 function fail(code: EventDispatchErrorCode, message: string, details?: unknown): never {

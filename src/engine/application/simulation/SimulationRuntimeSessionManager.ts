@@ -17,7 +17,10 @@ import {
   SimulationClockSpeedMultiplier,
   SimulationEngine,
   SimulationLogHandler,
+  WirelessMedium,
+  LinkBudgetChannelModel,
   type DispatchLoggerPort,
+  type RadioLinkSnapshot,
   type RuntimeContextProvider,
   type TelemetrySamplePayload
 } from '../../runtime'
@@ -55,7 +58,8 @@ function toErrorResult(
   error: unknown,
   clock: SimulationClock,
   engine: SimulationEngine,
-  eventQueue?: InMemoryEventQueue
+  eventQueue?: InMemoryEventQueue,
+  radioLinks?: readonly RadioLinkSnapshot[]
 ): SimulationCommandResult {
   if (error instanceof Error) {
     const code = 'code' in error && typeof error.code === 'string' ? error.code : error.name
@@ -65,6 +69,7 @@ function toErrorResult(
       clock: clock.getSnapshot(),
       engine: engine.getSnapshot(),
       ...(eventQueue ? { queue: eventQueue.getSnapshot() } : {}),
+      ...(radioLinks ? { radioLinks: [...radioLinks] } : {}),
       error: {
         code,
         message: error.message
@@ -77,6 +82,7 @@ function toErrorResult(
     clock: clock.getSnapshot(),
     engine: engine.getSnapshot(),
     ...(eventQueue ? { queue: eventQueue.getSnapshot() } : {}),
+    ...(radioLinks ? { radioLinks: [...radioLinks] } : {}),
     error: {
       code: 'SIMULATION_RUNTIME_UNKNOWN_ERROR',
       message: 'Unknown simulation runtime error'
@@ -88,6 +94,7 @@ export class SimulationRuntimeSessionManager {
   private readonly clock: SimulationClock
   private readonly eventQueue: InMemoryEventQueue
   private readonly dispatcher: EventDispatcher
+  private readonly wirelessMedium: WirelessMedium
   private readonly engine: SimulationEngine
   private readonly runtimeContextProvider?: RuntimeContextProvider
   private readonly logger?: DispatchLoggerPort
@@ -112,11 +119,21 @@ export class SimulationRuntimeSessionManager {
         'simulation.log': SimulationLogHandler
       }
     })
+    this.wirelessMedium = new WirelessMedium({
+      eventQueue: this.eventQueue,
+      channelModel: new LinkBudgetChannelModel(),
+      now: () => this.clock.getNowMs(),
+      runtimeContextProvider: () => this.runtimeContextProvider?.() ?? {},
+      logger: this.logger
+    })
     this.engine = new SimulationEngine({
       clock: this.clock,
       eventQueue: this.eventQueue,
       dispatcher: this.dispatcher,
-      runtimeContextProvider: this.runtimeContextProvider,
+      runtimeContextProvider: () => ({
+        ...(this.runtimeContextProvider?.() ?? {}),
+        wirelessMedium: this.wirelessMedium
+      }),
       logger: this.logger
     })
   }
@@ -142,6 +159,7 @@ export class SimulationRuntimeSessionManager {
         case 'simulation/reset':
           this.stopAutoStepLoop()
           this.clearExecutionLog()
+          this.wirelessMedium.clearLinks()
           return this.withEngine(this.engine.reset())
         case 'simulation/set-speed':
           this.clock.setSpeed(command.speed)
@@ -163,6 +181,7 @@ export class SimulationRuntimeSessionManager {
             clock: this.clock.getSnapshot(),
             engine: this.engine.getSnapshot(),
             queue: this.eventQueue.getSnapshot(),
+            radioLinks: [...this.wirelessMedium.getLinks()],
             error: {
               code: 'SIMULATION_COMMAND_UNKNOWN',
               message: `Unknown simulation command: ${(command as { type?: string }).type}`
@@ -170,7 +189,7 @@ export class SimulationRuntimeSessionManager {
         }
       }
     } catch (error) {
-      return toErrorResult(error, this.clock, this.engine, this.eventQueue)
+      return toErrorResult(error, this.clock, this.engine, this.eventQueue, this.wirelessMedium.getLinks())
     }
   }
 
@@ -182,10 +201,11 @@ export class SimulationRuntimeSessionManager {
     try {
       this.stopAutoStepLoop()
       this.clearExecutionLog()
+      this.wirelessMedium.clearLinks()
       this.clock.setSpeed(SimulationClockSpeedMultiplier.X1)
       return this.withEngine(this.engine.reset())
     } catch (error) {
-      return toErrorResult(error, this.clock, this.engine, this.eventQueue)
+      return toErrorResult(error, this.clock, this.engine, this.eventQueue, this.wirelessMedium.getLinks())
     }
   }
 
@@ -195,6 +215,7 @@ export class SimulationRuntimeSessionManager {
       clock: this.clock.getSnapshot(),
       engine: this.engine.getSnapshot(),
       queue: this.eventQueue.getSnapshot(),
+      radioLinks: [...this.wirelessMedium.getLinks()],
       executions: [...this.executionLog]
     }
   }
@@ -207,6 +228,7 @@ export class SimulationRuntimeSessionManager {
       clock: this.clock.getSnapshot(),
       engine: this.engine.getSnapshot(),
       queue: this.eventQueue.getSnapshot(),
+      radioLinks: [...this.wirelessMedium.getLinks()],
       executions: [...this.executionLog],
       ...('deltaRealMs' in result ? { step: result } : {}),
       ...(result.errors[0]
@@ -261,6 +283,7 @@ export class SimulationRuntimeSessionManager {
       engine: this.engine.getSnapshot(),
       queue: this.eventQueue.getSnapshot(),
       executions: [...this.executionLog],
+      radioLinks: [...this.wirelessMedium.getLinks()],
       scheduledEventIds: [scheduled.id]
     }
   }
@@ -401,6 +424,7 @@ export class SimulationRuntimeSessionManager {
       clock: this.clock.getSnapshot(),
       engine: this.engine.getSnapshot(),
       queue: this.eventQueue.getSnapshot(),
+      radioLinks: [...this.wirelessMedium.getLinks()],
       executions: [...this.executionLog],
       error: {
         code,

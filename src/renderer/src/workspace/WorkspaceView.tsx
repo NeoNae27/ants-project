@@ -14,11 +14,14 @@ import type {
   WorkspacePossibleConnection,
   WorkspacePoint,
   WorkspaceProject,
+  WorkspaceRadioLink,
   WorkspaceSpatialGridVisibility
 } from './types'
 import {
   createWorkspaceConnectionLines,
-  filterConnectionsForMode
+  filterConnectionsForMode,
+  formatRadioLinkDebugLabel,
+  getRadioLinkStatusClassName
 } from './workspaceConnections'
 
 type WorkspaceViewProps = {
@@ -27,6 +30,7 @@ type WorkspaceViewProps = {
   selectedDeviceId: string | null
   selectedDevice: WorkspaceDevice | null
   possibleConnections: WorkspacePossibleConnection[]
+  radioLinks: WorkspaceRadioLink[]
   spatialGridVisibility: WorkspaceSpatialGridVisibility
   simulationClock: SimulationClockSnapshot | null
   simulationQueue: EventQueueSnapshot | null
@@ -112,6 +116,7 @@ export function WorkspaceView({
   selectedDeviceId,
   selectedDevice,
   possibleConnections,
+  radioLinks,
   spatialGridVisibility,
   simulationClock,
   simulationQueue,
@@ -140,6 +145,8 @@ export function WorkspaceView({
   })
   const [connectionViewMode, setConnectionViewMode] =
     useState<WorkspaceConnectionViewMode>('selected')
+  const [showWirelessLinks, setShowWirelessLinks] = useState(true)
+  const [showLinkDebugInfo, setShowLinkDebugInfo] = useState(false)
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -502,9 +509,14 @@ export function WorkspaceView({
         <WorkspaceNavigator
           devices={devices}
           connections={possibleConnections}
+          radioLinks={radioLinks}
           selectedDeviceId={selectedDeviceId}
           viewMode={connectionViewMode}
+          showWirelessLinks={showWirelessLinks}
+          showLinkDebugInfo={showLinkDebugInfo}
           onViewModeChange={setConnectionViewMode}
+          onShowWirelessLinksChange={setShowWirelessLinks}
+          onShowLinkDebugInfoChange={setShowLinkDebugInfo}
           onSelectDevice={onSelectDevice}
         />
 
@@ -600,6 +612,53 @@ export function WorkspaceView({
                 </svg>
               ) : null}
 
+              {showWirelessLinks && radioLinks.length > 0 ? (
+                <svg
+                  className="workspace-radio-link-overlay"
+                  width={project.width}
+                  height={project.height}
+                  viewBox={`0 0 ${project.width} ${project.height}`}
+                  aria-hidden="true"
+                >
+                  {radioLinks.map((link) => {
+                    const sourceDevice = devicesById.get(link.sourceDeviceId)
+                    const targetDevice = devicesById.get(link.targetDeviceId)
+
+                    if (!sourceDevice || !targetDevice) {
+                      return null
+                    }
+
+                    const labelX = (sourceDevice.x + targetDevice.x) / 2
+                    const labelY = (sourceDevice.y + targetDevice.y) / 2
+                    const statusClassName = getRadioLinkStatusClassName(link.status)
+
+                    return (
+                      <g key={link.id}>
+                        <line
+                          className={`workspace-radio-link-line ${statusClassName}`}
+                          x1={sourceDevice.x}
+                          y1={sourceDevice.y}
+                          x2={targetDevice.x}
+                          y2={targetDevice.y}
+                        >
+                          <title>{formatRadioLinkDebugLabel(link)}</title>
+                        </line>
+                        {showLinkDebugInfo ? (
+                          <text
+                            className={`workspace-radio-link-label ${statusClassName}`}
+                            x={labelX}
+                            y={labelY - 8}
+                            textAnchor="middle"
+                          >
+                            {formatRadioLinkDebugLabel(link)}
+                          </text>
+                        ) : null}
+                      </g>
+                    )
+                  })}
+                </svg>
+              ) : null}
+
               {devices.map((device) => {
                 const isSelected = device.id === selectedDeviceId
 
@@ -646,6 +705,7 @@ export function WorkspaceView({
         <span className="status-item">Unit: 1 = {project.unitScaleMeters} m</span>
         <span className="status-item">Zoom: {zoomPercent}%</span>
         <span className="status-item">Links: {visibleConnections.length}</span>
+        <span className="status-item">Radio: {radioLinks.length}</span>
         <span className="status-item">
           Simulation: {simulationClock?.state ?? 'stopped'} {simulationTimeLabel} x{simulationClock?.speed ?? 1}
         </span>

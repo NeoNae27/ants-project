@@ -1,6 +1,7 @@
 import type { DeviceExecutionState } from '../../domain/device/DeviceExecutionState'
 import type { DeviceLifecycleState } from '../../domain/device/DeviceLifecycleState'
 import type { LoRaPacket } from '../../domain/modules/network/lora'
+import type { RadioLinkSnapshot, RadioPacket, TransmissionDropReason } from '../radio'
 
 export type RuntimeTelemetryPayload = {
   schema_version: '1.0'
@@ -38,7 +39,20 @@ export type PacketDeliveryPayload = {
   packet: LoRaPacket
   targetAddress: string
   targetDeviceId?: string
+  sourceDeviceId?: string
   sentAtSimulationMs?: number
+  link?: RadioLinkSnapshot
+}
+
+export type WirelessPacketLostPayload = {
+  radioPacket: RadioPacket
+  packet?: LoRaPacket
+  sourceDeviceId: string
+  targetDeviceId?: string
+  targetAddress?: string
+  reason: TransmissionDropReason
+  link: RadioLinkSnapshot
+  lostAtSimulationMs: number
 }
 
 export type GatewayPacketReceivedPayload = {

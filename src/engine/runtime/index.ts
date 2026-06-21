@@ -1,5 +1,6 @@
 export * from './events'
 export * from './clock'
+export * from './radio'
 export { SimulationEngine } from './SimulationEngine'
 export { createSimulationEngineError } from './SimulationEngineErrors'
 export { SimulationEngineStatus } from './SimulationEngineTypes'

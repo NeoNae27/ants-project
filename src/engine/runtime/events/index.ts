@@ -16,6 +16,7 @@ export {
   DeviceStateChangeHandler,
   GatewayPacketReceivedHandler,
   PacketDeliveryHandler,
+  PacketLostHandler,
   TelemetrySampleHandler,
   TelemetrySendHandler
 } from './handlers'
@@ -75,7 +76,8 @@ export type {
   PacketDeliveryPayload,
   RuntimeTelemetryPayload,
   TelemetrySamplePayload,
-  TelemetrySendPayload
+  TelemetrySendPayload,
+  WirelessPacketLostPayload
 } from './RuntimeEventPayloads'
 export type { RuntimeContextLookupSource } from './RuntimeEventContext'
 export type { SimulationLogPayload } from './handlers'

@@ -1,3 +1,5 @@
+import type { RadioLinkSnapshot } from '../../../shared/simulationRuntime'
+
 export type WorkspaceProject = {
   id: string
   name: string
@@ -87,3 +89,5 @@ export type WorkspaceConnectionLine = {
   connectionCount: number
   isSelected: boolean
 }
+
+export type WorkspaceRadioLink = RadioLinkSnapshot

@@ -4,12 +4,18 @@ import type {
 } from '../engine/runtime/clock'
 import type {
   EventQueueSnapshot,
+  RadioLinkSnapshot,
   SimulationEngineSnapshot,
   SimulationStepResult
 } from '../engine/runtime'
 
 export type { SimulationClockSnapshot, SimulationClockSpeed } from '../engine/runtime/clock'
-export type { EventQueueSnapshot, SimulationEngineSnapshot, SimulationStepResult } from '../engine/runtime'
+export type {
+  EventQueueSnapshot,
+  RadioLinkSnapshot,
+  SimulationEngineSnapshot,
+  SimulationStepResult
+} from '../engine/runtime'
 
 export type SimulationStartCommand = {
   type: 'simulation/start'
@@ -103,6 +109,7 @@ export type SimulationCommandResult = {
   clock?: SimulationClockSnapshot
   engine?: SimulationEngineSnapshot
   queue?: EventQueueSnapshot
+  radioLinks?: RadioLinkSnapshot[]
   step?: SimulationStepResult
   executions?: SimulationRuntimeExecutionLogEntry[]
   scheduledEventIds?: string[]

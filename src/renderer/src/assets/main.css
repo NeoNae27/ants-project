@@ -179,6 +179,14 @@ body,
   pointer-events: none;
 }
 
+.workspace-radio-link-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
 .workspace-link-line {
   stroke: rgba(100, 116, 139, 0.46);
   stroke-dasharray: 7 6;
@@ -190,6 +198,58 @@ body,
 .workspace-link-line.is-selected {
   stroke: rgba(51, 65, 85, 0.76);
   stroke-width: 2.4;
+}
+
+.workspace-radio-link-line {
+  stroke-linecap: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.workspace-radio-link-line.is-reachable {
+  stroke: rgba(22, 101, 52, 0.82);
+  stroke-dasharray: none;
+}
+
+.workspace-radio-link-line.is-weak {
+  stroke: rgba(180, 83, 9, 0.86);
+  stroke-dasharray: 9 4;
+  stroke-width: 3.6;
+}
+
+.workspace-radio-link-line.is-lost {
+  stroke: rgba(100, 116, 139, 0.38);
+  stroke-dasharray: 4 7;
+  stroke-width: 2;
+}
+
+.workspace-radio-link-line.is-invalid-config {
+  stroke: rgba(190, 18, 60, 0.72);
+  stroke-dasharray: 2 5;
+  stroke-width: 2.8;
+}
+
+.workspace-radio-link-label {
+  paint-order: stroke;
+  stroke: #ffffff;
+  stroke-width: 4px;
+  fill: #1f2937;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.workspace-radio-link-label.is-reachable {
+  fill: #14532d;
+}
+
+.workspace-radio-link-label.is-weak {
+  fill: #92400e;
+}
+
+.workspace-radio-link-label.is-lost,
+.workspace-radio-link-label.is-invalid-config {
+  fill: #9f1239;
 }
 
 .workspace-navigator,
@@ -554,6 +614,47 @@ body,
 .navigator-segmented button.is-active {
   background: #334155;
   color: #ffffff;
+}
+
+.navigator-link-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0 0 8px 20px;
+}
+
+.navigator-checkbox {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid #d8dee8;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0 7px;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.navigator-checkbox input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
+.navigator-checkbox span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navigator-checkbox strong {
+  color: #64748b;
+  font-size: 11px;
 }
 
 .navigator-link-group {

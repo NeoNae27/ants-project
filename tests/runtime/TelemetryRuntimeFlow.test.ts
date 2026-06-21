@@ -288,13 +288,26 @@ describe('Telemetry runtime flow', () => {
     assert.equal(started.ok, true)
     assert.equal(started.clock?.state, 'running')
 
-    await delay(80)
+    let snapshot = manager.getClockSnapshot()
 
-    const snapshot = manager.getClockSnapshot()
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (
+        snapshot.queue?.size === 0 &&
+        gatewayModule.getInboundBuffer().length === 1 &&
+        runtimeLogs.some((entry) => entry.message === 'gateway.packet_received')
+      ) {
+        break
+      }
+
+      await delay(10)
+      snapshot = manager.getClockSnapshot()
+    }
+
     manager.dispatch({ type: 'simulation/pause' })
 
     assert.equal(snapshot.ok, true)
     assert.equal(snapshot.queue?.size, 0)
+    assert.equal(snapshot.radioLinks?.length, 1)
     assert.equal(gatewayModule.getInboundBuffer().length, 1)
     assert.ok((snapshot.executions?.length ?? 0) >= 4)
     assert.ok(runtimeLogs.some((entry) => entry.message === 'simulation.step_executed'))

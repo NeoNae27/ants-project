@@ -9,6 +9,7 @@ export {
   DeviceStateChangeHandler,
   GatewayPacketReceivedHandler,
   PacketDeliveryHandler,
+  PacketLostHandler,
   TelemetrySampleHandler,
   TelemetrySendHandler
 } from './RuntimeEventHandlers'

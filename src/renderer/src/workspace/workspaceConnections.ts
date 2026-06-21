@@ -1,4 +1,5 @@
 import { SpatialGrid } from '../../../engine/domain/spatial'
+import type { RadioLinkSnapshot } from '../../../shared/simulationRuntime'
 import type {
   WorkspaceConnectionLine,
   WorkspaceConnectionViewMode,
@@ -149,4 +150,38 @@ export function createWorkspaceConnectionLines(params: {
   }
 
   return Array.from(lines.values())
+}
+
+export function getRadioLinkStatusClassName(status: RadioLinkSnapshot['status']): string {
+  return `is-${status.replace('_', '-')}`
+}
+
+export function formatRadioLinkDebugLabel(link: RadioLinkSnapshot): string {
+  const parts = [formatDistance(link.distanceMeters)]
+
+  if (typeof link.rssiDbm === 'number') {
+    parts.push(`RSSI ${formatDb(link.rssiDbm)} dBm`)
+  }
+
+  if (typeof link.linkMarginDb === 'number') {
+    parts.push(`margin ${formatDb(link.linkMarginDb)} dB`)
+  }
+
+  if (link.status === 'lost' || link.status === 'invalid_config') {
+    parts.push(`${link.status}: ${link.reason ?? 'CHANNEL_MODEL_REJECTED'}`)
+  }
+
+  return parts.join(' | ')
+}
+
+function formatDistance(meters: number): string {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toFixed(2)} km`
+  }
+
+  return `${Math.round(meters)} m`
+}
+
+function formatDb(value: number): string {
+  return Number.isInteger(value) ? value.toString() : value.toFixed(1)
 }

@@ -16,6 +16,7 @@ import type {
   SimulationCommand,
   SimulationClockSnapshot,
   SimulationCommandResult,
+  RadioLinkSnapshot,
   SimulationRuntimeExecutionLogEntry
 } from '../../shared/simulationRuntime'
 import type {
@@ -294,6 +295,7 @@ function App(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<WorkspaceSnapshot | null>(null)
   const [simulationClock, setSimulationClock] = useState<SimulationClockSnapshot | null>(null)
   const [simulationQueue, setSimulationQueue] = useState<EventQueueSnapshot | null>(null)
+  const [radioLinks, setRadioLinks] = useState<RadioLinkSnapshot[]>([])
   const lastSimulationExecutionSequenceRef = useRef(0)
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null)
   const [debugEnabled, setDebugEnabled] = useState(false)
@@ -385,9 +387,7 @@ function App(): React.JSX.Element {
           type: 'simulation/get-clock-snapshot'
         })
 
-        if (simulationResult.clock) {
-          setSimulationClock(simulationResult.clock)
-        }
+        applySimulationResult(simulationResult)
       }
 
       return result
@@ -601,6 +601,10 @@ function App(): React.JSX.Element {
 
       if (result.queue) {
         setSimulationQueue(result.queue)
+      }
+
+      if (result.radioLinks) {
+        setRadioLinks(result.radioLinks)
       }
 
       logSimulationExecutions(result.executions)
@@ -924,12 +928,8 @@ function App(): React.JSX.Element {
               type: 'simulation/get-clock-snapshot'
             })
             .then((simulationResult) => {
-              if (isMounted && simulationResult.clock) {
-                setSimulationClock(simulationResult.clock)
-              }
-
-              if (isMounted && simulationResult.queue) {
-                setSimulationQueue(simulationResult.queue)
+              if (isMounted) {
+                applySimulationResult(simulationResult)
               }
             })
         }
@@ -1052,6 +1052,7 @@ function App(): React.JSX.Element {
         selectedDeviceId={selectedDeviceId}
         selectedDevice={selectedDevice}
         possibleConnections={snapshot?.possibleConnections ?? []}
+        radioLinks={radioLinks}
         spatialGridVisibility={spatialGridVisibility}
         simulationClock={simulationClock}
         simulationQueue={simulationQueue}
