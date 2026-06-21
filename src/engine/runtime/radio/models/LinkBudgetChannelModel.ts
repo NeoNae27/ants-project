@@ -96,6 +96,26 @@ export class LinkBudgetChannelModel implements ChannelModel {
 
   evaluate(input: ChannelEvaluationInput): ChannelEvaluationResult {
     const delayMs = this.baseDelayMs
+
+    if (input.distanceMeters > input.packet.radio.candidateSearchRadiusMeters) {
+      return {
+        canDeliver: false,
+        delayMs,
+        reason: 'OUT_OF_RANGE',
+        link: {
+          id: `${input.packet.id}:${input.source.deviceId}->${input.target.deviceId}`,
+          sourceDeviceId: input.source.deviceId,
+          targetDeviceId: input.target.deviceId,
+          protocol: input.packet.protocol,
+          status: 'lost',
+          distanceMeters: input.distanceMeters,
+          delayMs,
+          reason: 'OUT_OF_RANGE',
+          updatedAt: input.nowMs
+        }
+      }
+    }
+
     const incompatibleReason = this.getCompatibilityReason(input)
 
     if (incompatibleReason) {

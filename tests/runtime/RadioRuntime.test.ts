@@ -67,6 +67,7 @@ function createWorkspaceFixture(options: {
   gatewayFrequencyHz?: number
   gatewayX?: number
   gatewayY?: number
+  sourceMaxRangeMeters?: number
 } = {}): {
   workspace: Workspace
   sensorModule: LoRaModule
@@ -79,7 +80,11 @@ function createWorkspaceFixture(options: {
     height: 1000,
     metersPerUnit: 10
   })
-  const sensorModule = createLoRaModule('sensor-lora', 'node-001')
+  const sensorModule = createLoRaModule('sensor-lora', 'node-001', {
+    ...(options.sourceMaxRangeMeters !== undefined
+      ? { maxRangeMeters: options.sourceMaxRangeMeters }
+      : {})
+  })
   const gatewayModule = createLoRaModule('gateway-lora', 'gateway-001', {
     ...(options.gatewayFrequencyHz ? { frequencyHz: options.gatewayFrequencyHz } : {})
   })
@@ -175,6 +180,7 @@ describe('radio runtime', () => {
 
   it('evaluates reachable, weak, lost, and incompatible links', () => {
     const packet = toRadioPacketFromLoRaPacket(createPacket(createLoRaModule('sensor-lora', 'node-001')))
+    packet.radio.candidateSearchRadiusMeters = 1_000_000
     const model = new LinkBudgetChannelModel({ baseDelayMs: 50 })
     const source = { deviceId: 'sensor-001', x: 0, y: 0 }
     const target = {
@@ -233,6 +239,56 @@ describe('radio runtime', () => {
     assert.equal(incompatible.reason, 'FREQUENCY_MISMATCH')
   })
 
+  it('uses candidate search radius as a hard range cap before link budget', () => {
+    const packet = toRadioPacketFromLoRaPacket(createPacket(createLoRaModule('sensor-lora', 'node-001')))
+    packet.radio.candidateSearchRadiusMeters = 10_000
+    packet.radio.txPowerDbm = 80
+    const model = new LinkBudgetChannelModel({ baseDelayMs: 50 })
+    const source = { deviceId: 'sensor-001', x: 0, y: 0 }
+    const target = {
+      deviceId: 'gateway-001',
+      x: 1,
+      y: 1,
+      radio: {
+        frequencyHz: 868_000_000,
+        bandwidthHz: 125_000,
+        spreadingFactor: 7
+      }
+    }
+
+    const justInsideRange = model.evaluate({
+      packet,
+      source,
+      target,
+      distanceMeters: 9999.99,
+      nowMs: 1000
+    })
+    const onBoundary = model.evaluate({
+      packet,
+      source,
+      target,
+      distanceMeters: 10_000,
+      nowMs: 1000
+    })
+    const beyondRange = model.evaluate({
+      packet,
+      source,
+      target,
+      distanceMeters: 10_000.01,
+      nowMs: 1000
+    })
+
+    assert.equal(justInsideRange.reason, undefined)
+    assert.equal(justInsideRange.canDeliver, true)
+    assert.equal(onBoundary.reason, undefined)
+    assert.equal(onBoundary.canDeliver, true)
+    assert.equal(beyondRange.canDeliver, false)
+    assert.equal(beyondRange.reason, 'OUT_OF_RANGE')
+    assert.equal(beyondRange.link.status, 'lost')
+    assert.equal(beyondRange.link.reason, 'OUT_OF_RANGE')
+    assert.equal(beyondRange.link.pathLossDb, undefined)
+  })
+
   it('schedules packet delivery and exposes radio link snapshots', () => {
     const { workspace, sensorModule } = createWorkspaceFixture()
     const queue = new InMemoryEventQueue()
@@ -289,6 +345,40 @@ describe('radio runtime', () => {
     assert.equal(medium.getLinks()[0]?.status, 'invalid_config')
   })
 
+  it('keeps direct target lookup but rejects explicit targets beyond source range', () => {
+    const { workspace, sensorModule, gatewayModule } = createWorkspaceFixture({
+      gatewayX: 1000,
+      gatewayY: 1000,
+      sourceMaxRangeMeters: 10_000
+    })
+    const queue = new InMemoryEventQueue()
+    const medium = new WirelessMedium({
+      eventQueue: queue,
+      channelModel: new LinkBudgetChannelModel(),
+      now: () => 1000,
+      runtimeContextProvider: () => ({ workspace })
+    })
+    const result = medium.transmit(
+      createPacket(sensorModule),
+      {
+        simulationTimeMs: 1000,
+        eventQueue: queue,
+        workspace
+      },
+      { sourceDeviceId: 'sensor-001' }
+    )
+
+    assert.equal(result.ok, false)
+    assert.equal(result.reason, 'OUT_OF_RANGE')
+    assert.equal(result.links.length, 1)
+    assert.equal(result.links[0]?.targetDeviceId, 'gateway-001')
+    assert.equal(result.links[0]?.status, 'lost')
+    assert.equal(result.links[0]?.reason, 'OUT_OF_RANGE')
+    assert.equal(queue.peekNext()?.type, RuntimeEventType.PACKET_LOST)
+    assert.equal(queue.getSnapshot().events.some((event) => event.type === RuntimeEventType.PACKET_DELIVERY), false)
+    assert.equal(gatewayModule.getInboundBuffer().length, 0)
+  })
+
   it('returns and clears radio links through simulation command results', () => {
     const { workspace } = createWorkspaceFixture()
     const manager = new SimulationRuntimeSessionManager({
@@ -324,5 +414,40 @@ describe('radio runtime', () => {
     manager.dispatch({ type: 'simulation/advance-clock', deltaRealMs: 1 })
     assert.equal(manager.dispatch({ type: 'simulation/get-clock-snapshot' }).radioLinks?.length, 1)
     assert.equal(manager.resetForNewWorkspace().radioLinks?.length, 0)
+  })
+
+  it('does not deliver runtime telemetry to an explicit Gateway beyond 10 km', () => {
+    const { workspace, gatewayModule } = createWorkspaceFixture({
+      gatewayX: 1000,
+      gatewayY: 1000,
+      sourceMaxRangeMeters: 10_000
+    })
+    const manager = new SimulationRuntimeSessionManager({
+      runtimeContextProvider: () => ({ workspace })
+    })
+
+    const scheduled = manager.dispatch({
+      type: 'simulation/schedule-basic-telemetry',
+      deviceId: 'sensor-001',
+      targetAddress: 'gateway-001',
+      dueInMs: 1,
+      sendDelayMs: 1,
+      deliveryDelayMs: 1
+    })
+
+    assert.equal(scheduled.ok, true)
+
+    manager.dispatch({ type: 'simulation/advance-clock', deltaRealMs: 1 })
+    const sent = manager.dispatch({ type: 'simulation/advance-clock', deltaRealMs: 1 })
+
+    assert.equal(sent.ok, true)
+    assert.equal(sent.radioLinks?.length, 1)
+    assert.equal(sent.radioLinks?.[0]?.status, 'lost')
+    assert.equal(sent.radioLinks?.[0]?.reason, 'OUT_OF_RANGE')
+    assert.equal(sent.queue?.events.some((event) => event.type === RuntimeEventType.PACKET_LOST), true)
+    assert.equal(sent.queue?.events.some((event) => event.type === RuntimeEventType.PACKET_DELIVERY), false)
+
+    manager.dispatch({ type: 'simulation/advance-clock', deltaRealMs: 1 })
+    assert.equal(gatewayModule.getInboundBuffer().length, 0)
   })
 })
