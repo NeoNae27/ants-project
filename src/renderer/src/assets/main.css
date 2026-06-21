@@ -417,6 +417,34 @@ body,
   white-space: nowrap;
 }
 
+.inspector-select-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  min-height: 28px;
+  align-items: center;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.inspector-select-row select {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #ffffff;
+  padding: 0 6px;
+  color: #172033;
+  font-size: 12px;
+  outline: none;
+}
+
+.inspector-select-row select:focus {
+  border-color: #64748b;
+  box-shadow: 0 0 0 2px rgba(100, 116, 139, 0.14);
+}
+
 .queue-count {
   display: grid;
   place-items: center;

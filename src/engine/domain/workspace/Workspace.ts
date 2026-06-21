@@ -173,6 +173,12 @@ export class Workspace {
     return this.registry.listByRole(role)
   }
 
+  updateDeviceRole(deviceId: DeviceId, role: DeviceRole): void {
+    this.assertDeviceId(deviceId)
+    this.assertPlacedDevice(deviceId)
+    this.registry.updateDeviceRole(deviceId, role)
+  }
+
   getDevicePosition(deviceId: DeviceId): WorkspacePosition | undefined {
     this.assertDeviceId(deviceId)
     const position = this.placementIndex.get(deviceId)

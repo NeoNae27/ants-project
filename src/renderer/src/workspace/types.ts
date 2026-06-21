@@ -13,6 +13,7 @@ export type WorkspaceModuleKind = 'network' | 'sensor' | 'power' | 'compute' | '
 export type WorkspaceCommunicationProtocol = 'lora'
 export type WorkspaceSpatialGridTechnology = 'lora'
 export type WorkspaceSpatialGridVisibility = Record<WorkspaceSpatialGridTechnology, boolean>
+export type WorkspaceDeviceRole = 'node' | 'repeater' | 'gateway'
 
 export type WorkspaceCommunicationConfig = {
   protocol: WorkspaceCommunicationProtocol
@@ -38,7 +39,7 @@ export type WorkspaceDevice = {
   id: string
   name: string
   model: string
-  role: 'node' | 'repeater' | 'gateway'
+  role: WorkspaceDeviceRole
   status: string
   executionState: string
   config: {

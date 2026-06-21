@@ -28,6 +28,7 @@ import { WorkspaceView } from './workspace/WorkspaceView'
 import type {
   AddDevicePlacement,
   WorkspaceDevice,
+  WorkspaceDeviceRole,
   WorkspaceModule,
   WorkspacePoint,
   WorkspaceProject,
@@ -442,6 +443,18 @@ function App(): React.JSX.Element {
         type: 'workspace/add-module',
         deviceId,
         template: moduleToTemplate(module)
+      })
+    },
+    [debugLog, dispatchWorkspaceCommand]
+  )
+
+  const updateDeviceRole = useCallback(
+    (deviceId: string, role: WorkspaceDeviceRole) => {
+      debugLog('Device role update requested', { deviceId, role })
+      void dispatchWorkspaceCommand({
+        type: 'workspace/update-device-role',
+        deviceId,
+        role
       })
     },
     [debugLog, dispatchWorkspaceCommand]
@@ -1062,6 +1075,7 @@ function App(): React.JSX.Element {
         onPasteDeviceAt={pasteCopiedDeviceAt}
         onMoveDevice={moveDevice}
         onAddModule={addModuleToDevice}
+        onUpdateDeviceRole={updateDeviceRole}
         onUpdateModule={updateDeviceModule}
         onRemoveModule={removeDeviceModule}
         onSelectDevice={selectDevice}

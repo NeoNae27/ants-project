@@ -3,7 +3,12 @@ import type {
   EventQueueSnapshot,
   SimulationClockSnapshot
 } from '../../../shared/simulationRuntime'
-import type { WorkspaceCommunicationConfig, WorkspaceDevice, WorkspaceModule } from './types'
+import type {
+  WorkspaceCommunicationConfig,
+  WorkspaceDevice,
+  WorkspaceDeviceRole,
+  WorkspaceModule
+} from './types'
 import { ModuleCatalogDialog } from './ModuleCatalogDialog'
 
 type DeviceInspectorProps = {
@@ -11,6 +16,7 @@ type DeviceInspectorProps = {
   simulationClock: SimulationClockSnapshot | null
   simulationQueue: EventQueueSnapshot | null
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
+  onUpdateDeviceRole: (deviceId: string, role: WorkspaceDeviceRole) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
   onRemoveModule: (deviceId: string, moduleId: string) => void
 }
@@ -52,12 +58,14 @@ function formatTaskDueIn(eventScheduledAt: number, simulationClock: SimulationCl
 const spreadingFactorOptions: WorkspaceCommunicationConfig['spreadingFactor'][] = [7, 8, 9, 10, 11, 12]
 const codingRateOptions: WorkspaceCommunicationConfig['codingRate'][] = ['4/5', '4/6', '4/7', '4/8']
 const bandwidthOptions = [125_000, 250_000, 500_000]
+const deviceRoleOptions: WorkspaceDeviceRole[] = ['node', 'repeater', 'gateway']
 
 export function DeviceInspector({
   device,
   simulationClock,
   simulationQueue,
   onAddModule,
+  onUpdateDeviceRole,
   onUpdateModule,
   onRemoveModule
 }: DeviceInspectorProps): React.JSX.Element {
@@ -120,6 +128,14 @@ export function DeviceInspector({
     }
 
     onRemoveModule(device.id, moduleId)
+  }
+
+  function updateDeviceRole(nextRole: WorkspaceDeviceRole): void {
+    if (!device || nextRole === device.role) {
+      return
+    }
+
+    onUpdateDeviceRole(device.id, nextRole)
   }
 
   return (
@@ -197,7 +213,19 @@ export function DeviceInspector({
                   <InfoRow label="Name" value={device.name} />
                   <InfoRow label="ID" value={device.id} />
                   <InfoRow label="Model" value={device.model} />
-                  <InfoRow label="Role" value={device.role} />
+                  <label className="inspector-select-row">
+                    <span>Role</span>
+                    <select
+                      value={device.role}
+                      onChange={(event) => updateDeviceRole(event.currentTarget.value as WorkspaceDeviceRole)}
+                    >
+                      {deviceRoleOptions.map((role) => (
+                        <option value={role} key={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <InfoRow label="Status" value={device.status} />
                   <InfoRow label="State" value={device.executionState} />
                 </>

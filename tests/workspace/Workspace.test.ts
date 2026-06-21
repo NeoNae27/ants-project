@@ -185,6 +185,18 @@ describe('Workspace', () => {
     assert.deepEqual(workspace.listDevicesByRole(DeviceRole.GATEWAY), [gateway])
   })
 
+  it('updates device role and keeps role indexes in sync', () => {
+    const workspace = createWorkspace()
+    const device = createDevice('node-1', DeviceRole.NODE)
+
+    workspace.addDevice(device, { x: 1, y: 1 })
+    workspace.updateDeviceRole('node-1', DeviceRole.GATEWAY)
+
+    assert.equal(workspace.getSnapshot().devices[0].info.role, DeviceRole.GATEWAY)
+    assert.deepEqual(workspace.listDevicesByRole(DeviceRole.NODE), [])
+    assert.deepEqual(workspace.listDevicesByRole(DeviceRole.GATEWAY), [device])
+  })
+
   it('rejects duplicate device placement and out-of-bounds position', () => {
     const workspace = createWorkspace()
     const device = createDevice('node-1')
@@ -497,6 +509,7 @@ describe('Workspace', () => {
             executionState: 'idle',
             moduleCount: 1,
             bufferSize: 0,
+            receivedPacketCount: 0,
           },
           config: {
             heartbeatIntervalMs: 60000,

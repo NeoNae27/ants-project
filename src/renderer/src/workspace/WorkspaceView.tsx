@@ -12,6 +12,7 @@ import type {
   AddDevicePlacement,
   WorkspaceConnectionViewMode,
   WorkspaceDevice,
+  WorkspaceDeviceRole,
   WorkspaceModule,
   WorkspacePossibleConnection,
   WorkspacePoint,
@@ -49,6 +50,7 @@ type WorkspaceViewProps = {
   onPasteDeviceAt: (position: WorkspacePoint) => void
   onMoveDevice: (deviceId: string, position: WorkspacePoint) => void
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
+  onUpdateDeviceRole: (deviceId: string, role: WorkspaceDeviceRole) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
   onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
@@ -132,6 +134,7 @@ export function WorkspaceView({
   onPasteDeviceAt,
   onMoveDevice,
   onAddModule,
+  onUpdateDeviceRole,
   onUpdateModule,
   onRemoveModule,
   onSelectDevice,
@@ -706,6 +709,7 @@ export function WorkspaceView({
           simulationClock={simulationClock}
           simulationQueue={simulationQueue}
           onAddModule={onAddModule}
+          onUpdateDeviceRole={onUpdateDeviceRole}
           onUpdateModule={onUpdateModule}
           onRemoveModule={onRemoveModule}
         />

@@ -100,6 +100,30 @@ describe('WorkspaceSession', () => {
     assert.equal(deleted.snapshot?.devices.length, 0)
   })
 
+  it('updates device roles through Workspace', () => {
+    const session = new WorkspaceSession()
+    createProject(session)
+
+    const added = session.dispatch({
+      type: 'workspace/add-device',
+      position: { x: 100, y: 100 },
+    })
+
+    assertOk(added)
+    const deviceId = added.snapshot?.devices[0].id
+    assert.ok(deviceId)
+
+    const updated = session.dispatch({
+      type: 'workspace/update-device-role',
+      deviceId,
+      role: 'gateway',
+    })
+
+    assertOk(updated)
+    assert.equal(updated.snapshot?.devices[0].info.role, 'gateway')
+    assert.equal(updated.events[0].type, 'workspace.device.role_updated')
+  })
+
   it('creates LoRa Gateway devices from shared presets', () => {
     const session = new WorkspaceSession()
     createProject(session)
