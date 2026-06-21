@@ -15,6 +15,8 @@ export {
   SimulationNoopEventType,
   DeviceStateChangeHandler,
   GatewayPacketReceivedHandler,
+  LoRaCodecSendHandler,
+  LoRaPingSendHandler,
   PacketDeliveryHandler,
   PacketLostHandler,
   TelemetrySampleHandler,
@@ -73,6 +75,8 @@ export type { DeterministicTelemetryInput } from './DeterministicTelemetryFactor
 export type {
   DeviceStateChangePayload,
   GatewayPacketReceivedPayload,
+  LoRaCodecSendPayload,
+  LoRaPingSendPayload,
   PacketDeliveryPayload,
   RuntimeTelemetryPayload,
   TelemetrySamplePayload,

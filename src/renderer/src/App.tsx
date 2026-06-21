@@ -19,6 +19,7 @@ import type {
   SimulationCommand,
   SimulationClockSnapshot,
   SimulationCommandResult,
+  SimulationLoRaAnyCodecReport,
   RadioLinkSnapshot,
   SimulationRuntimeExecutionLogEntry
 } from '../../shared/simulationRuntime'
@@ -42,6 +43,7 @@ const DEFAULT_PROJECT: WorkspaceProject = {
   height: 1000,
   unitScaleMeters: 10
 }
+const LORA_CODEC_REPORT_NOTE_PREFIX = 'lora-codec-report:'
 
 function isEditableShortcutTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -294,6 +296,100 @@ function createSimulationExecutionView(
     events: execution.processedEvents.map((event) => event.type).join(', '),
     errors: execution.errors.map((error) => error.code).join(', ')
   }))
+}
+
+function printLoRaCodecReports(reports: readonly SimulationLoRaAnyCodecReport[]): void {
+  for (const [index, report] of reports.entries()) {
+    console.log('============================================================')
+    console.log(
+      `LoRa Symbol Codec Report #${index + 1} kind=${report.messageKind} mode=${report.frameMode}`
+    )
+    console.log('============================================================')
+
+    if (report.messageKind === 'ping') {
+      console.log('SOURCE PING')
+      console.log(report.sourcePing)
+    } else {
+      console.log('SOURCE TELEMETRY')
+      console.log(report.sourceTelemetry)
+    }
+
+    console.log('ENCODED MESSAGE')
+    console.log({
+      frameMode: report.frameMode,
+      source: report.source,
+      target: report.target,
+      phyMode: report.encoded.phyMode,
+      phyConfig: report.encoded.phyConfig,
+      appPayloadSizeBytes: report.encoded.appPayloadSizeBytes,
+      networkFrameSizeBytes: report.encoded.networkFrameSizeBytes,
+      phyPayloadSizeBytes: report.encoded.phyPayloadSizeBytes,
+      payloadWithCrcSizeBytes: report.encoded.payloadWithCrcSizeBytes,
+      whitenedBits: report.encoded.whitenedBits,
+      fecBits: report.encoded.fecBits,
+      interleavedBits: report.encoded.interleavedBits,
+      encodedDataSymbols: report.encoded.encodedDataSymbols,
+      totalPhysicalSymbols: report.encoded.totalPhysicalSymbols,
+      symbolTimeMs: report.encoded.symbolTimeMs,
+      timeOnAirMs: report.encoded.timeOnAirMs,
+      encodedBytesHex: report.encoded.encodedBytesHex,
+      encodedSymbolsPreview: report.encoded.encodedSymbolsPreview
+    })
+
+    console.log('DECODED MESSAGE')
+    console.log(
+      report.messageKind === 'ping'
+        ? {
+            frameMode: report.decoded.frameMode,
+            directFrame: report.decoded.directFrame,
+            meshFrame: report.decoded.meshFrame,
+            decodedPing: report.decoded.decodedPing,
+            reconstructedMessageId: report.decoded.reconstructedMessageId,
+            decodedPayloadSizeBytes: report.decoded.decodedPayloadSizeBytes,
+            phyDiagnostics: report.decoded.phyDiagnostics
+          }
+        : {
+            frameMode: report.decoded.frameMode,
+            directFrame: report.decoded.directFrame,
+            meshFrame: report.decoded.meshFrame,
+            decodedTelemetry: report.decoded.decodedTelemetry,
+            reconstructedMessageId: report.decoded.reconstructedMessageId,
+            decodedPayloadSizeBytes: report.decoded.decodedPayloadSizeBytes,
+            phyDiagnostics: report.decoded.phyDiagnostics
+          }
+    )
+
+    console.log('ROUNDTRIP')
+    console.log({
+      roundtrip: report.roundtrip.ok ? 'OK' : 'FAIL',
+      expectedReconstructedMessageId: report.roundtrip.expectedReconstructedMessageId,
+      comparedFields: report.roundtrip.comparedFields
+    })
+  }
+}
+
+function extractLoRaCodecReports(
+  executions: readonly SimulationRuntimeExecutionLogEntry[]
+): SimulationLoRaAnyCodecReport[] {
+  const reports: SimulationLoRaAnyCodecReport[] = []
+
+  for (const execution of executions) {
+    for (const result of execution.dispatchResults) {
+      for (const note of result.notes ?? []) {
+        if (!note.startsWith(LORA_CODEC_REPORT_NOTE_PREFIX)) {
+          continue
+        }
+
+        try {
+          reports.push(JSON.parse(note.slice(LORA_CODEC_REPORT_NOTE_PREFIX.length)))
+        } catch (error) {
+          console.error('[Simulation] Failed to parse LoRa codec report', error)
+        }
+      }
+    }
+  }
+
+  return reports
 }
 
 function App(): React.JSX.Element {
@@ -614,6 +710,12 @@ function App(): React.JSX.Element {
       }
 
       console.groupEnd()
+
+      const loraCodecReports = extractLoRaCodecReports(newExecutions)
+
+      if (loraCodecReports.length > 0) {
+        printLoRaCodecReports(loraCodecReports)
+      }
     },
     []
   )
@@ -859,6 +961,79 @@ function App(): React.JSX.Element {
       }
 
       console.info('[Simulation] Scheduled PING event', result.scheduledEventIds ?? [])
+
+      if (result.queue) {
+        console.table(createEventQueueView(result.queue))
+      }
+    },
+    [dispatchSimulationCommand, ensureDeviceLoRaAddress, snapshot]
+  )
+
+  const sendTypicalLoRaMessage = useCallback(
+    async (deviceId: string) => {
+      if (!snapshot) {
+        console.error('[Simulation] Cannot send typical LoRa message before a workspace exists')
+        return
+      }
+
+      const sourceDevice = snapshot.devices.find((device) => device.id === deviceId)
+
+      if (!sourceDevice) {
+        console.error('[Simulation] Typical LoRa source device is not in the current workspace', {
+          deviceId
+        })
+        return
+      }
+
+      if (!hasSnapshotLoRaModule(sourceDevice)) {
+        console.error('[Simulation] Typical LoRa source must have a LoRa module', {
+          deviceId: sourceDevice.id
+        })
+        return
+      }
+
+      const sourceAddress = await ensureDeviceLoRaAddress(
+        snapshot,
+        sourceDevice,
+        'typical LoRa source'
+      )
+
+      if (!sourceAddress) {
+        return
+      }
+
+      const targetDevice = findBasicTelemetryGatewayTarget(sourceAddress.snapshot, sourceDevice.id)
+
+      if (!targetDevice) {
+        console.error('[Simulation] No Gateway device with LoRa module is available for LoRa codec')
+        return
+      }
+
+      const targetAddress = await ensureDeviceLoRaAddress(
+        sourceAddress.snapshot,
+        targetDevice,
+        'typical LoRa Gateway target'
+      )
+
+      if (!targetAddress) {
+        return
+      }
+
+      const result = await dispatchSimulationCommand(
+        {
+          type: 'simulation/send-typical-lora-message',
+          deviceId: sourceDevice.id,
+          targetAddress: targetAddress.address,
+          mode: 'both'
+        },
+        `encoded typical LoRa message ${sourceDevice.id} -> ${targetAddress.address}`
+      )
+
+      if (!result.ok) {
+        return
+      }
+
+      console.info('[Simulation] Scheduled typical LoRa message events', result.scheduledEventIds ?? [])
 
       if (result.queue) {
         console.table(createEventQueueView(result.queue))
@@ -1171,6 +1346,7 @@ function App(): React.JSX.Element {
         onRemoveModule={removeDeviceModule}
         onSelectDevice={selectDevice}
         onSendPingToGateway={sendPingToGateway}
+        onSendTypicalLoRaMessage={sendTypicalLoRaMessage}
         onClearSelection={() => setSelectedDeviceId(null)}
       />
 

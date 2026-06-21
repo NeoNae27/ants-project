@@ -4,6 +4,7 @@ import { DeviceFactory } from '../../src/engine/domain/device/DeviceFactory'
 import { DeviceRole } from '../../src/engine/domain/device/DeviceRole'
 import { LoRaModule, LoRaProfile, LoRaRegion, type LoRaPacket } from '../../src/engine/domain/modules/network/lora'
 import { Workspace } from '../../src/engine/domain/workspace'
+import { isLoRaCodecEncodedPacketPayload } from '../../src/engine/application/simulation/LoRaCodecReportService'
 import {
   createDefaultRuntimeEventHandlers,
   createDeterministicLoRaPacket,
@@ -365,6 +366,7 @@ describe('Gateway packet receive flow', () => {
     const delivered = engine.step(100)
     assert.equal(delivered.ok, true)
     assert.equal(gatewayModule.getInboundBuffer().length, 1)
+    assert.ok(isLoRaCodecEncodedPacketPayload(gatewayModule.getInboundBuffer()[0]?.payload))
     assert.equal(
       workspace.getSnapshot().devices.find((device) => device.id === 'gateway-001')?.info
         .receivedPacketCount,

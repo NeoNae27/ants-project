@@ -22,15 +22,23 @@ import {
   type DispatchLoggerPort,
   type RadioLinkSnapshot,
   type RuntimeContextProvider,
+  type LoRaCodecSendPayload,
+  type LoRaPingSendPayload,
   type TelemetrySamplePayload
 } from '../../runtime'
+import { TelemetryMessageFactory } from '../../domain/lora/codec'
 import type {
   SimulationCommand,
   SimulationCommandResult,
+  SimulationLoRaCodecMode,
   SimulationRuntimeExecutionLogEntry,
   SimulationScheduleBasicTelemetryCommand,
-  SimulationSendPingToGatewayCommand
+  SimulationSendPingToGatewayCommand,
+  SimulationSendTypicalLoRaMessageCommand
 } from '../../../shared/simulationRuntime'
+import {
+  loraAddressToNumericAddress
+} from './LoRaCodecReportService'
 
 const DEFAULT_PING_DUE_IN_MS = 0
 const DEFAULT_PING_DELIVERY_DELAY_MS = 100
@@ -63,6 +71,15 @@ type NormalizedPingCommand = {
   targetDeviceId: string
   dueInMs: number
   deliveryDelayMs: number
+}
+
+type NormalizedTypicalLoRaMessageCommand = {
+  deviceId: string
+  targetAddress: string
+  targetDeviceId: string
+  mode: SimulationLoRaCodecMode
+  sourceAddress: string
+  sourceNumericAddress: number
 }
 
 function toErrorResult(
@@ -111,9 +128,12 @@ export class SimulationRuntimeSessionManager {
   private readonly logger?: DispatchLoggerPort
   private readonly autoRun: boolean
   private readonly autoStepRealMs: number
+  private readonly typicalTelemetryFactories = new Map<string, TelemetryMessageFactory>()
   private autoStepTimer?: ReturnType<typeof setInterval>
   private nextPingScenarioSequence = 1
+  private lastPingSentAtUnix = 0
   private nextTelemetryScenarioSequence = 1
+  private lastTelemetryMeasuredAtUnix = 0
   private nextExecutionSequence = 1
   private executionLog: SimulationRuntimeExecutionLogEntry[] = []
 
@@ -172,6 +192,9 @@ export class SimulationRuntimeSessionManager {
           this.stopAutoStepLoop()
           this.clearExecutionLog()
           this.wirelessMedium.clearLinks()
+          this.typicalTelemetryFactories.clear()
+          this.lastPingSentAtUnix = 0
+          this.lastTelemetryMeasuredAtUnix = 0
           return this.withEngine(this.engine.reset())
         case 'simulation/set-speed':
           this.clock.setSpeed(command.speed)
@@ -189,6 +212,8 @@ export class SimulationRuntimeSessionManager {
           return this.scheduleBasicTelemetry(command)
         case 'simulation/send-ping-to-gateway':
           return this.sendPingToGateway(command)
+        case 'simulation/send-typical-lora-message':
+          return this.sendTypicalLoRaMessage(command)
         default:
           return {
             ok: false,
@@ -222,6 +247,9 @@ export class SimulationRuntimeSessionManager {
       this.stopAutoStepLoop()
       this.clearExecutionLog()
       this.wirelessMedium.clearLinks()
+      this.typicalTelemetryFactories.clear()
+      this.lastPingSentAtUnix = 0
+      this.lastTelemetryMeasuredAtUnix = 0
       this.clock.setSpeed(SimulationClockSpeedMultiplier.X1)
       return this.withEngine(this.engine.reset())
     } catch (error) {
@@ -279,10 +307,11 @@ export class SimulationRuntimeSessionManager {
     const nowMs = this.clock.getNowMs()
     const sequence = this.nextPingScenarioSequence
     this.nextPingScenarioSequence += 1
+    const sentAtUnix = this.nextMonotonicPingUnix(nowMs)
 
-    const scheduled = this.eventQueue.schedule({
+    const scheduled = this.eventQueue.schedule<LoRaPingSendPayload>({
       id: `scenario:ping:${normalized.deviceId}:${nowMs}:${sequence}`,
-      type: RuntimeEventType.TELEMETRY_SEND,
+      type: RuntimeEventType.LORA_PING_SEND,
       scheduledAt: nowMs + normalized.dueInMs,
       createdAt: nowMs,
       priority: EventPriority.COMMAND,
@@ -292,24 +321,62 @@ export class SimulationRuntimeSessionManager {
         deviceId: normalized.deviceId,
         targetAddress: normalized.targetAddress,
         deliveryDelayMs: normalized.deliveryDelayMs,
-        telemetry: {
-          schema_version: '1.0',
-          message_id: `ping:${normalized.deviceId}:${nowMs}:${sequence}`,
+        mode: 'direct',
+        ping: {
+          schemaVersion: 1,
+          messageId: `ping-${normalized.deviceId}-${sequence}-${sentAtUnix}`,
           sequence,
-          source: 'simulator',
-          device_id: normalized.deviceId,
-          timestamp: nowMs,
-          battery: 100,
-          sensors: {
-            ping: 1
-          },
-          link: {
-            hops: 0
-          }
+          sentAtUnix
         }
       },
       meta: {
         reason: 'ui.ping_gateway'
+      }
+    })
+
+    return {
+      ok: true,
+      clock: this.clock.getSnapshot(),
+      engine: this.engine.getSnapshot(),
+      queue: this.eventQueue.getSnapshot(),
+      executions: [...this.executionLog],
+      radioLinks: [...this.wirelessMedium.getLinks()],
+      scheduledEventIds: [scheduled.id]
+    }
+  }
+
+  private sendTypicalLoRaMessage(
+    command: SimulationSendTypicalLoRaMessageCommand
+  ): SimulationCommandResult {
+    const validation = this.validateTypicalLoRaMessageCommand(command)
+
+    if (!validation.ok) {
+      return this.withError(validation.code, validation.message)
+    }
+
+    const normalized = validation.command
+    const factory = this.getTypicalTelemetryFactory(
+      normalized.sourceAddress,
+      normalized.sourceNumericAddress
+    )
+    const telemetry = factory.next()
+    const nowMs = this.clock.getNowMs()
+    const scheduled = this.eventQueue.schedule<LoRaCodecSendPayload>({
+      id: `scenario:lora-codec:${normalized.deviceId}:${nowMs}:${telemetry.sequence}`,
+      type: RuntimeEventType.LORA_CODEC_SEND,
+      scheduledAt: nowMs,
+      createdAt: nowMs,
+      priority: EventPriority.COMMAND,
+      source: { type: 'device', id: normalized.deviceId },
+      target: { deviceId: normalized.targetDeviceId },
+      payload: {
+        deviceId: normalized.deviceId,
+        targetAddress: normalized.targetAddress,
+        telemetry,
+        mode: normalized.mode
+      },
+      meta: {
+        reason: 'ui.typical_lora_message'
       }
     })
 
@@ -335,13 +402,15 @@ export class SimulationRuntimeSessionManager {
 
     const normalized = validation.command
     const nowMs = this.clock.getNowMs()
+    const sampleAtMs = nowMs + normalized.dueInMs
     const sequence = this.nextTelemetryScenarioSequence
     this.nextTelemetryScenarioSequence += 1
+    const measuredAtUnix = this.nextMonotonicTelemetryUnix(sampleAtMs)
 
     const scheduled = this.eventQueue.schedule<TelemetrySamplePayload>({
       id: `scenario:telemetry:${normalized.deviceId}:${nowMs}:${sequence}`,
       type: RuntimeEventType.TELEMETRY_SAMPLE,
-      scheduledAt: nowMs + normalized.dueInMs,
+      scheduledAt: sampleAtMs,
       createdAt: nowMs,
       priority: EventPriority.TELEMETRY,
       source: { type: 'scenario', id: 'basic-telemetry' },
@@ -352,7 +421,9 @@ export class SimulationRuntimeSessionManager {
         repeat: normalized.repeat,
         ...(normalized.intervalMs !== undefined ? { intervalMs: normalized.intervalMs } : {}),
         sendDelayMs: normalized.sendDelayMs,
-        deliveryDelayMs: normalized.deliveryDelayMs
+        deliveryDelayMs: normalized.deliveryDelayMs,
+        sequence,
+        measuredAtUnix
       },
       meta: {
         reason: 'debug.basic_telemetry'
@@ -598,6 +669,140 @@ export class SimulationRuntimeSessionManager {
         deliveryDelayMs
       }
     }
+  }
+
+  private validateTypicalLoRaMessageCommand(
+    command: SimulationSendTypicalLoRaMessageCommand
+  ):
+    | { ok: true; command: NormalizedTypicalLoRaMessageCommand }
+    | { ok: false; code: string; message: string } {
+    const deviceId = typeof command.deviceId === 'string' ? command.deviceId.trim() : ''
+    const targetAddress =
+      typeof command.targetAddress === 'string' ? command.targetAddress.trim() : ''
+    const mode = command.mode ?? 'both'
+
+    if (!deviceId) {
+      return this.validationError('SIMULATION_LORA_CODEC_DEVICE_ID_REQUIRED', 'deviceId is required')
+    }
+
+    if (!targetAddress) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_TARGET_ADDRESS_REQUIRED',
+        'targetAddress is required'
+      )
+    }
+
+    if (mode !== 'direct' && mode !== 'mesh' && mode !== 'both') {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_MODE_INVALID',
+        'mode must be direct, mesh, or both'
+      )
+    }
+
+    const runtimeContext = this.runtimeContextProvider?.() ?? {}
+    const sourceDevice = findRuntimeDeviceById(runtimeContext, deviceId)
+
+    if (!sourceDevice) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_SOURCE_DEVICE_NOT_FOUND',
+        `Source device not found: ${deviceId}`
+      )
+    }
+
+    const sourceModule = findRuntimeLoRaModule(sourceDevice)
+
+    if (!sourceModule) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_SOURCE_LORA_MODULE_NOT_FOUND',
+        `Source LoRa module not found: ${deviceId}`
+      )
+    }
+
+    const sourceAddress = findRuntimeLoRaAddress(runtimeContext, deviceId, sourceModule.id)
+
+    if (!sourceAddress) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_SOURCE_LORA_ADDRESS_NOT_FOUND',
+        `Source LoRa address not found: ${deviceId}`
+      )
+    }
+
+    const targetDevice = findRuntimeDeviceByAddress(runtimeContext, targetAddress)
+
+    if (!targetDevice) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_TARGET_DEVICE_NOT_FOUND',
+        `Target device not found for LoRa address: ${targetAddress}`
+      )
+    }
+
+    if (!isRuntimeGatewayDevice(targetDevice)) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_TARGET_NOT_GATEWAY',
+        `Target address does not belong to a Gateway device: ${targetAddress}`
+      )
+    }
+
+    const targetDeviceId = getRuntimeDeviceId(targetDevice)
+    const targetEndpoint = findRuntimeLoRaEndpoint(runtimeContext, targetDeviceId, targetAddress)
+
+    if (!targetEndpoint) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_TARGET_LORA_ADDRESS_NOT_FOUND',
+        `Target LoRa endpoint not found: ${targetAddress}`
+      )
+    }
+
+    if (!isRuntimeLoRaModule(targetDevice.getModule(targetEndpoint.moduleId))) {
+      return this.validationError(
+        'SIMULATION_LORA_CODEC_TARGET_LORA_MODULE_NOT_FOUND',
+        `Target LoRa module not found: ${targetEndpoint.moduleId}`
+      )
+    }
+
+    return {
+      ok: true,
+      command: {
+        deviceId,
+        targetAddress,
+        targetDeviceId,
+        mode,
+        sourceAddress,
+        sourceNumericAddress: loraAddressToNumericAddress(sourceAddress)
+      }
+    }
+  }
+
+  private getTypicalTelemetryFactory(
+    sourceAddress: string,
+    sourceNumericAddress: number
+  ): TelemetryMessageFactory {
+    const key = `${sourceAddress}:${sourceNumericAddress}`
+    const existing = this.typicalTelemetryFactories.get(key)
+
+    if (existing) {
+      return existing
+    }
+
+    const factory = new TelemetryMessageFactory({
+      sourceAddress: sourceNumericAddress,
+      sequenceStart: 1
+    })
+
+    this.typicalTelemetryFactories.set(key, factory)
+    return factory
+  }
+
+  private nextMonotonicPingUnix(nowMs: number): number {
+    const candidate = Math.floor(nowMs / 1000)
+    this.lastPingSentAtUnix = Math.max(candidate, this.lastPingSentAtUnix + 1)
+    return this.lastPingSentAtUnix
+  }
+
+  private nextMonotonicTelemetryUnix(nowMs: number): number {
+    const candidate = Math.floor(nowMs / 1000)
+    this.lastTelemetryMeasuredAtUnix = Math.max(candidate, this.lastTelemetryMeasuredAtUnix + 1)
+    return this.lastTelemetryMeasuredAtUnix
   }
 
   private validationError(

@@ -1,6 +1,9 @@
 import type { DeviceExecutionState } from '../../domain/device/DeviceExecutionState'
 import type { DeviceLifecycleState } from '../../domain/device/DeviceLifecycleState'
+import type { TelemetryPayloadV1 } from '../../domain/lora/codec'
+import type { LoRaPingPayloadV1 } from '../../domain/lora/codec'
 import type { LoRaPacket } from '../../domain/modules/network/lora'
+import type { SimulationLoRaCodecMode } from '../../../shared/simulationRuntime'
 import type { RadioLinkSnapshot, RadioPacket, TransmissionDropReason } from '../radio'
 
 export type RuntimeTelemetryPayload = {
@@ -26,12 +29,29 @@ export type TelemetrySamplePayload = {
   sendDelayMs?: number
   deliveryDelayMs?: number
   sequence?: number
+  measuredAtUnix?: number
 }
 
 export type TelemetrySendPayload = {
   deviceId: string
   targetAddress: string
   telemetry: RuntimeTelemetryPayload
+  deliveryDelayMs?: number
+}
+
+export type LoRaCodecSendPayload = {
+  deviceId: string
+  targetAddress: string
+  telemetry: TelemetryPayloadV1
+  mode: SimulationLoRaCodecMode
+  deliveryDelayMs?: number
+}
+
+export type LoRaPingSendPayload = {
+  deviceId: string
+  targetAddress: string
+  ping: LoRaPingPayloadV1
+  mode?: Extract<SimulationLoRaCodecMode, 'direct' | 'mesh'>
   deliveryDelayMs?: number
 }
 

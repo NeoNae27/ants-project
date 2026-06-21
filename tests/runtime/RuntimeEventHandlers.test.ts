@@ -6,6 +6,7 @@ import { DeviceLifecycleState } from '../../src/engine/domain/device/DeviceLifec
 import { DeviceRole } from '../../src/engine/domain/device/DeviceRole'
 import { LoRaModule, LoRaProfile, LoRaRegion, type LoRaPacket } from '../../src/engine/domain/modules/network/lora'
 import { Workspace } from '../../src/engine/domain/workspace'
+import { isLoRaCodecEncodedPacketPayload } from '../../src/engine/application/simulation/LoRaCodecReportService'
 import {
   createDeterministicLoRaPacket,
   createDeterministicTelemetry,
@@ -189,7 +190,10 @@ describe('Runtime event handlers', () => {
     assert.equal(sendEvent?.type, RuntimeEventType.TELEMETRY_SEND)
     assert.equal(sendEvent?.payload.telemetry.timestamp, 1000)
     assert.equal(sendEvent?.payload.deliveryDelayMs, 100)
-    assert.equal(queue.peekNext()?.id, 'sample-1:next:6000')
+    const nextEvent = queue.peekNext() as SimulationEvent<TelemetrySamplePayload> | undefined
+    assert.equal(nextEvent?.id, 'sample-1:next:6000')
+    assert.equal(nextEvent?.payload.sequence, 2)
+    assert.equal(nextEvent?.payload.measuredAtUnix, 6)
   })
 
   it('telemetry sample returns recoverable failure for invalid repeat interval', () => {
@@ -252,8 +256,10 @@ describe('Runtime event handlers', () => {
 
     const [deliveryEvent] = queue.popDueEvents(1101)
     assert.equal(deliveryEvent?.type, RuntimeEventType.PACKET_DELIVERY)
-    assert.equal((deliveryEvent?.payload as { packet?: LoRaPacket }).packet?.sourceAddress, 'node-001')
-    assert.equal((deliveryEvent?.payload as { packet?: LoRaPacket }).packet?.packetId, `pkt_${telemetry.message_id}`)
+    const packet = (deliveryEvent?.payload as { packet?: LoRaPacket }).packet
+    assert.equal(packet?.sourceAddress, 'node-001')
+    assert.match(packet?.packetId ?? '', /^pkt_lora_telemetry_1_direct_/)
+    assert.ok(isLoRaCodecEncodedPacketPayload(packet?.payload))
     assert.equal(sensorModule.getOutboundBuffer().length, 0)
   })
 
@@ -294,6 +300,7 @@ describe('Runtime event handlers', () => {
 
     assert.equal(result.ok, true)
     assert.equal(transmitted.length, 1)
+    assert.ok(isLoRaCodecEncodedPacketPayload(transmitted[0]?.payload))
     assert.equal(queue.size(), 0)
   })
 

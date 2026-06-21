@@ -7,6 +7,10 @@ import { LoRaModule, LoRaProfile, LoRaRegion } from '../../src/engine/domain/mod
 import { Workspace } from '../../src/engine/domain/workspace'
 import { SimulationRuntimeSessionManager } from '../../src/engine/application/simulation'
 import {
+  LORA_CODEC_REPORT_NOTE_PREFIX,
+  isLoRaCodecEncodedPacketPayload
+} from '../../src/engine/application/simulation/LoRaCodecReportService'
+import {
   createDefaultRuntimeEventHandlers,
   EventDispatcher,
   EventPriority,
@@ -16,6 +20,7 @@ import {
   SimulationEngine,
   SimulationEngineStatus
 } from '../../src/engine/runtime'
+import type { SimulationLoRaAnyCodecReport } from '../../src/shared/simulationRuntime'
 
 function createLoRaModule(id: string, sourceAddress: string): LoRaModule {
   return new LoRaModule(id, 'SX1276', '1.0.0', sourceAddress, {
@@ -44,6 +49,24 @@ function createLoRaModule(id: string, sourceAddress: string): LoRaModule {
       maxHops: 1
     }
   })
+}
+
+function extractCodecReports(
+  executions: NonNullable<ReturnType<SimulationRuntimeSessionManager['dispatch']>['executions']>
+): SimulationLoRaAnyCodecReport[] {
+  const reports: SimulationLoRaAnyCodecReport[] = []
+
+  for (const execution of executions) {
+    for (const result of execution.dispatchResults) {
+      for (const note of result.notes ?? []) {
+        if (note.startsWith(LORA_CODEC_REPORT_NOTE_PREFIX)) {
+          reports.push(JSON.parse(note.slice(LORA_CODEC_REPORT_NOTE_PREFIX.length)))
+        }
+      }
+    }
+  }
+
+  return reports
 }
 
 function createWorkspaceFixture(): {
@@ -154,7 +177,11 @@ describe('Telemetry runtime flow', () => {
 
     const [packet] = gatewayModule.getInboundBuffer()
     assert.equal(packet?.targetAddress, 'gateway-001')
-    assert.equal((packet?.payload as { timestamp?: number }).timestamp, 1000)
+    assert.ok(isLoRaCodecEncodedPacketPayload(packet?.payload))
+    if (isLoRaCodecEncodedPacketPayload(packet?.payload)) {
+      assert.equal(packet.payload.kind, 'lora-symbol-codec-frame')
+      assert.equal(packet.payload.sourceTelemetry.sequence, 1)
+    }
   })
 
   it('schedule-basic-telemetry command schedules only the first telemetry event', () => {
@@ -198,7 +225,7 @@ describe('Telemetry runtime flow', () => {
     assert.equal(scheduled.ok, true)
     assert.deepEqual(scheduled.scheduledEventIds, ['scenario:ping:sensor-001:0:1'])
     assert.equal(scheduled.queue?.size, 1)
-    assert.equal(scheduled.queue?.events[0]?.type, RuntimeEventType.TELEMETRY_SEND)
+    assert.equal(scheduled.queue?.events[0]?.type, RuntimeEventType.LORA_PING_SEND)
     assert.equal(scheduled.queue?.events[0]?.scheduledAt, 1)
 
     const sent = manager.dispatch({
@@ -219,7 +246,24 @@ describe('Telemetry runtime flow', () => {
 
     const [packet] = gatewayModule.getInboundBuffer()
     assert.equal(packet?.targetAddress, 'gateway-001')
-    assert.equal((packet?.payload as { sensors?: { ping?: number } }).sensors?.ping, 1)
+    assert.ok(isLoRaCodecEncodedPacketPayload(packet?.payload))
+    if (isLoRaCodecEncodedPacketPayload(packet?.payload)) {
+      assert.equal(packet.payload.kind, 'lora-symbol-codec-ping')
+      assert.equal(packet.payload.sourcePing.sequence, 1)
+    }
+
+    const decoded = manager.dispatch({
+      type: 'simulation/advance-clock',
+      deltaRealMs: 1
+    })
+    const reports = extractCodecReports(decoded.executions ?? [])
+    const pingReport = reports.find((report) => report.messageKind === 'ping')
+
+    assert.equal(pingReport?.messageKind, 'ping')
+    if (pingReport?.messageKind === 'ping') {
+      assert.equal(pingReport.decoded.decodedPing.sequence, 1)
+      assert.equal(pingReport.roundtrip.ok, true)
+    }
   })
 
   it('schedule-basic-telemetry rejects invalid source devices', () => {

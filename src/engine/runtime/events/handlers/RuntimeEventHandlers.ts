@@ -1,10 +1,20 @@
 import { DeviceExecutionState } from '../../../domain/device/DeviceExecutionState'
 import { DeviceLifecycleState } from '../../../domain/device/DeviceLifecycleState'
-import type { LoRaPacket } from '../../../domain/modules/network/lora'
+import type { LoRaModule, LoRaPacket } from '../../../domain/modules/network/lora'
+import {
+  TelemetrySensorFlags,
+  type TelemetryPayloadV1
+} from '../../../domain/lora/codec'
+import {
+  LORA_CODEC_REPORT_NOTE_PREFIX,
+  LoRaCodecReportService,
+  type LoRaEncodedPacketPayload,
+  isLoRaCodecEncodedPacketPayload,
+  loraAddressToNumericAddress
+} from '../../../application/simulation/LoRaCodecReportService'
 import { EventDispatchError, type EventDispatchErrorCode } from '../EventDispatcherErrors'
 import type { DispatchContext, EventHandler } from '../EventDispatcherTypes'
 import { EventPriority, type SimulationEvent } from '../EventQueueTypes'
-import { createDeterministicLoRaPacket } from '../DeterministicPacketFactory'
 import { createDeterministicTelemetry } from '../DeterministicTelemetryFactory'
 import {
   findRuntimeDeviceByAddress,
@@ -18,6 +28,8 @@ import {
 } from '../RuntimeEventContext'
 import type {
   GatewayPacketReceivedPayload,
+  LoRaCodecSendPayload,
+  LoRaPingSendPayload,
   PacketDeliveryPayload,
   TelemetrySamplePayload,
   TelemetrySendPayload,
@@ -55,10 +67,18 @@ export const TelemetrySampleHandler: EventHandler =
       })
     }
 
+    const measuredAtUnix =
+      typeof payload.measuredAtUnix === 'number'
+        ? payload.measuredAtUnix
+        : Math.max(0, Math.floor(context.simulationTimeMs / 1000))
+    const sequence =
+      typeof payload.sequence === 'number'
+        ? payload.sequence
+        : Math.max(1, Math.floor(context.simulationTimeMs / 1000))
     const telemetry = createDeterministicTelemetry({
       deviceId: payload.deviceId,
-      simulationTimeMs: context.simulationTimeMs,
-      sequence: payload.sequence
+      simulationTimeMs: measuredAtUnix * 1000,
+      sequence
     })
     const scheduledSend = context.eventQueue.schedule<TelemetrySendPayload>({
       id: `${event.id}:send`,
@@ -92,6 +112,7 @@ export const TelemetrySampleHandler: EventHandler =
       }
 
       const nextScheduledAt = context.simulationTimeMs + intervalMs
+      const nextMeasuredAtUnix = Math.max(measuredAtUnix + 1, Math.floor(nextScheduledAt / 1000))
 
       const scheduledNext = context.eventQueue.schedule<TelemetrySamplePayload>({
         id: `${event.id}:next:${nextScheduledAt}`,
@@ -101,7 +122,11 @@ export const TelemetrySampleHandler: EventHandler =
         priority: EventPriority.TELEMETRY,
         source: event.source ? { ...event.source } : { type: 'device', id: payload.deviceId },
         target: event.target ? { ...event.target } : { deviceId: payload.deviceId },
-        payload: { ...payload },
+        payload: {
+          ...payload,
+          sequence: sequence + 1,
+          measuredAtUnix: nextMeasuredAtUnix
+        },
         meta: {
           parentEventId: event.id,
           correlationId: event.meta?.correlationId
@@ -158,71 +183,333 @@ export const TelemetrySendHandler: EventHandler =
       })
     }
 
-    const packet = createDeterministicLoRaPacket({
-      sourceAddress,
-      targetAddress: payload.targetAddress,
-      telemetry: payload.telemetry,
-      sourceModule,
-      simulationTimeMs: context.simulationTimeMs
+    const targetDevice = findRuntimeDeviceByAddress(context, payload.targetAddress)
+    const targetDeviceId = targetDevice ? getRuntimeDeviceId(targetDevice) : undefined
+    const encodedPayloads = new LoRaCodecReportService().buildEncodedPayloads({
+      mode: 'direct',
+      telemetry: runtimeTelemetryToLoRaTelemetry(
+        payload.telemetry,
+        loraAddressToNumericAddress(sourceAddress)
+      ),
+      source: {
+        deviceId: payload.deviceId,
+        moduleId: sourceModule.id,
+        address: sourceAddress,
+        numericAddress: loraAddressToNumericAddress(sourceAddress)
+      },
+      target: {
+        deviceId: targetDeviceId ?? payload.targetAddress,
+        address: payload.targetAddress,
+        numericAddress: loraAddressToNumericAddress(payload.targetAddress)
+      },
+      sourceModuleConfig: sourceModule.getConfig()
     })
     const wirelessMedium = toWirelessMedium(context.wirelessMedium)
+    const scheduledEventIds: string[] = []
+    const notes: string[] = []
 
-    if (wirelessMedium) {
-      const transmissionResult = wirelessMedium.transmit(packet, context, {
-        sourceDeviceId: payload.deviceId,
-        parentEventId: event.id
+    for (const encodedPayload of encodedPayloads) {
+      const packet = createEncodedLoRaPacket({
+        sourceAddress,
+        targetAddress: payload.targetAddress,
+        encodedPayload,
+        sourceModule,
+        simulationTimeMs: context.simulationTimeMs
       })
+
+      if (wirelessMedium) {
+        const transmissionResult = wirelessMedium.transmit(packet, context, {
+          sourceDeviceId: payload.deviceId,
+          parentEventId: event.id
+        })
+        scheduledEventIds.push(...getScheduledEventIds(transmissionResult))
+        notes.push(`encoded telemetry packet transmit requested: ${packet.packetId}`)
+      } else {
+        const deliveryDelayMs = payload.deliveryDelayMs ?? DEFAULT_DELIVERY_DELAY_MS
+
+        if (!Number.isFinite(deliveryDelayMs) || deliveryDelayMs <= 0) {
+          fail('INVALID_EVENT_PAYLOAD', 'deliveryDelayMs must be greater than zero', {
+            eventId: event.id,
+            deliveryDelayMs
+          })
+        }
+
+        const scheduledDelivery = context.eventQueue.schedule<PacketDeliveryPayload>({
+          id: `${event.id}:delivery`,
+          type: RuntimeEventType.PACKET_DELIVERY,
+          scheduledAt: context.simulationTimeMs + deliveryDelayMs,
+          createdAt: context.simulationTimeMs,
+          priority: EventPriority.WIRELESS_DELIVERY,
+          source: { type: 'module', id: sourceModule.id },
+          target: targetDevice ? { deviceId: getRuntimeDeviceId(targetDevice) } : undefined,
+          payload: {
+            packet,
+            targetAddress: payload.targetAddress,
+            ...(targetDevice ? { targetDeviceId: getRuntimeDeviceId(targetDevice) } : {}),
+            sentAtSimulationMs: context.simulationTimeMs
+          },
+          meta: {
+            parentEventId: event.id,
+            correlationId: event.meta?.correlationId
+          }
+        })
+
+        scheduledEventIds.push(scheduledDelivery.id)
+        notes.push(`encoded telemetry packet delivery scheduled: ${packet.packetId}`)
+      }
+
       toMetricsCollector(context.metricsCollector)?.recordPacketSent?.({
         packet,
         simulationTimeMs: context.simulationTimeMs
       })
-      context.logger?.debug?.('packet_transmit_requested', { packetId: packet.packetId })
-
-      return {
-        scheduledEventIds: getScheduledEventIds(transmissionResult),
-        notes: [`packet transmit requested: ${packet.packetId}`]
-      }
+      context.logger?.debug?.('encoded_telemetry_packet_transmit_requested', {
+        packetId: packet.packetId
+      })
     }
 
-    const deliveryDelayMs = payload.deliveryDelayMs ?? DEFAULT_DELIVERY_DELAY_MS
+    return {
+      scheduledEventIds,
+      notes
+    }
+  }
 
-    if (!Number.isFinite(deliveryDelayMs) || deliveryDelayMs <= 0) {
-      fail('INVALID_EVENT_PAYLOAD', 'deliveryDelayMs must be greater than zero', {
+export const LoRaCodecSendHandler: EventHandler =
+  function LoRaCodecSendHandler(event, context) {
+    const payload = requireLoRaCodecSendPayload(event)
+    const sourceDevice = findRuntimeDeviceById(context, payload.deviceId)
+
+    if (!sourceDevice) {
+      fail('SOURCE_DEVICE_NOT_FOUND', `Source device not found: ${payload.deviceId}`, {
         eventId: event.id,
-        deliveryDelayMs
+        deviceId: payload.deviceId
+      })
+    }
+
+    const sourceModule = findRuntimeLoRaModule(sourceDevice)
+
+    if (!sourceModule) {
+      fail('SOURCE_NETWORK_MODULE_NOT_FOUND', `Source LoRa module not found: ${payload.deviceId}`, {
+        eventId: event.id,
+        deviceId: payload.deviceId
+      })
+    }
+
+    const sourceAddress = findRuntimeLoRaAddress(context, payload.deviceId, sourceModule.id)
+
+    if (!sourceAddress) {
+      fail('SOURCE_LORA_ADDRESS_REQUIRED', `Source LoRa address not found: ${payload.deviceId}`, {
+        eventId: event.id,
+        deviceId: payload.deviceId,
+        moduleId: sourceModule.id
       })
     }
 
     const targetDevice = findRuntimeDeviceByAddress(context, payload.targetAddress)
-    const scheduledDelivery = context.eventQueue.schedule<PacketDeliveryPayload>({
-      id: `${event.id}:delivery`,
-      type: RuntimeEventType.PACKET_DELIVERY,
-      scheduledAt: context.simulationTimeMs + deliveryDelayMs,
-      createdAt: context.simulationTimeMs,
-      priority: EventPriority.WIRELESS_DELIVERY,
-      source: { type: 'module', id: sourceModule.id },
-      target: targetDevice ? { deviceId: getRuntimeDeviceId(targetDevice) } : undefined,
-      payload: {
-        packet,
-        targetAddress: payload.targetAddress,
-        ...(targetDevice ? { targetDeviceId: getRuntimeDeviceId(targetDevice) } : {}),
-        sentAtSimulationMs: context.simulationTimeMs
+    const targetDeviceId = targetDevice ? getRuntimeDeviceId(targetDevice) : undefined
+    const service = new LoRaCodecReportService()
+    const encodedPayloads = service.buildEncodedPayloads({
+      mode: payload.mode,
+      telemetry: payload.telemetry,
+      source: {
+        deviceId: payload.deviceId,
+        moduleId: sourceModule.id,
+        address: sourceAddress,
+        numericAddress: loraAddressToNumericAddress(sourceAddress)
       },
-      meta: {
-        parentEventId: event.id,
-        correlationId: event.meta?.correlationId
-      }
+      target: {
+        deviceId: targetDeviceId ?? payload.targetAddress,
+        address: payload.targetAddress,
+        numericAddress: loraAddressToNumericAddress(payload.targetAddress)
+      },
+      sourceModuleConfig: sourceModule.getConfig()
     })
+    const wirelessMedium = toWirelessMedium(context.wirelessMedium)
+    const scheduledEventIds: string[] = []
+    const notes: string[] = []
 
-    toMetricsCollector(context.metricsCollector)?.recordPacketSent?.({
-      packet,
-      simulationTimeMs: context.simulationTimeMs
-    })
-    context.logger?.debug?.('packet_delivery_scheduled', { packetId: packet.packetId })
+    for (const encodedPayload of encodedPayloads) {
+      const packet = createEncodedLoRaPacket({
+        sourceAddress,
+        targetAddress: payload.targetAddress,
+        encodedPayload,
+        sourceModule,
+        simulationTimeMs: context.simulationTimeMs
+      })
+
+      if (wirelessMedium) {
+        const transmissionResult = wirelessMedium.transmit(packet, context, {
+          sourceDeviceId: payload.deviceId,
+          parentEventId: event.id
+        })
+        scheduledEventIds.push(...getScheduledEventIds(transmissionResult))
+        notes.push(`lora codec packet transmit requested: ${packet.packetId}`)
+      } else {
+        const deliveryDelayMs = payload.deliveryDelayMs ?? DEFAULT_DELIVERY_DELAY_MS
+
+        if (!Number.isFinite(deliveryDelayMs) || deliveryDelayMs <= 0) {
+          fail('INVALID_EVENT_PAYLOAD', 'deliveryDelayMs must be greater than zero', {
+            eventId: event.id,
+            deliveryDelayMs
+          })
+        }
+
+        const scheduledDelivery = context.eventQueue.schedule<PacketDeliveryPayload>({
+          id: `${event.id}:delivery:${encodedPayload.frameMode}`,
+          type: RuntimeEventType.PACKET_DELIVERY,
+          scheduledAt: context.simulationTimeMs + deliveryDelayMs,
+          createdAt: context.simulationTimeMs,
+          priority: EventPriority.WIRELESS_DELIVERY,
+          source: { type: 'module', id: sourceModule.id },
+          target: targetDeviceId ? { deviceId: targetDeviceId } : undefined,
+          payload: {
+            packet,
+            targetAddress: payload.targetAddress,
+            ...(targetDeviceId ? { targetDeviceId } : {}),
+            sentAtSimulationMs: context.simulationTimeMs
+          },
+          meta: {
+            parentEventId: event.id,
+            correlationId: event.meta?.correlationId
+          }
+        })
+
+        scheduledEventIds.push(scheduledDelivery.id)
+        notes.push(`lora codec packet delivery scheduled: ${packet.packetId}`)
+      }
+
+      toMetricsCollector(context.metricsCollector)?.recordPacketSent?.({
+        packet,
+        simulationTimeMs: context.simulationTimeMs
+      })
+      context.logger?.debug?.('lora_codec_packet_transmit_requested', {
+        packetId: packet.packetId,
+        frameMode: encodedPayload.frameMode
+      })
+    }
 
     return {
-      scheduledEventIds: [scheduledDelivery.id],
-      notes: [`packet delivery scheduled: ${packet.packetId}`]
+      scheduledEventIds,
+      notes
+    }
+  }
+
+export const LoRaPingSendHandler: EventHandler =
+  function LoRaPingSendHandler(event, context) {
+    const payload = requireLoRaPingSendPayload(event)
+    const sourceDevice = findRuntimeDeviceById(context, payload.deviceId)
+
+    if (!sourceDevice) {
+      fail('SOURCE_DEVICE_NOT_FOUND', `Source device not found: ${payload.deviceId}`, {
+        eventId: event.id,
+        deviceId: payload.deviceId
+      })
+    }
+
+    const sourceModule = findRuntimeLoRaModule(sourceDevice)
+
+    if (!sourceModule) {
+      fail('SOURCE_NETWORK_MODULE_NOT_FOUND', `Source LoRa module not found: ${payload.deviceId}`, {
+        eventId: event.id,
+        deviceId: payload.deviceId
+      })
+    }
+
+    const sourceAddress = findRuntimeLoRaAddress(context, payload.deviceId, sourceModule.id)
+
+    if (!sourceAddress) {
+      fail('SOURCE_LORA_ADDRESS_REQUIRED', `Source LoRa address not found: ${payload.deviceId}`, {
+        eventId: event.id,
+        deviceId: payload.deviceId,
+        moduleId: sourceModule.id
+      })
+    }
+
+    const targetDevice = findRuntimeDeviceByAddress(context, payload.targetAddress)
+    const targetDeviceId = targetDevice ? getRuntimeDeviceId(targetDevice) : undefined
+    const service = new LoRaCodecReportService()
+    const encodedPayloads = service.buildPingEncodedPayloads({
+      mode: payload.mode ?? 'direct',
+      ping: payload.ping,
+      source: {
+        deviceId: payload.deviceId,
+        moduleId: sourceModule.id,
+        address: sourceAddress,
+        numericAddress: loraAddressToNumericAddress(sourceAddress)
+      },
+      target: {
+        deviceId: targetDeviceId ?? payload.targetAddress,
+        address: payload.targetAddress,
+        numericAddress: loraAddressToNumericAddress(payload.targetAddress)
+      },
+      sourceModuleConfig: sourceModule.getConfig()
+    })
+    const wirelessMedium = toWirelessMedium(context.wirelessMedium)
+    const scheduledEventIds: string[] = []
+    const notes: string[] = []
+
+    for (const encodedPayload of encodedPayloads) {
+      const packet = createEncodedLoRaPacket({
+        sourceAddress,
+        targetAddress: payload.targetAddress,
+        encodedPayload,
+        sourceModule,
+        simulationTimeMs: context.simulationTimeMs
+      })
+
+      if (wirelessMedium) {
+        const transmissionResult = wirelessMedium.transmit(packet, context, {
+          sourceDeviceId: payload.deviceId,
+          parentEventId: event.id
+        })
+        scheduledEventIds.push(...getScheduledEventIds(transmissionResult))
+        notes.push(`lora ping packet transmit requested: ${packet.packetId}`)
+      } else {
+        const deliveryDelayMs = payload.deliveryDelayMs ?? DEFAULT_DELIVERY_DELAY_MS
+
+        if (!Number.isFinite(deliveryDelayMs) || deliveryDelayMs <= 0) {
+          fail('INVALID_EVENT_PAYLOAD', 'deliveryDelayMs must be greater than zero', {
+            eventId: event.id,
+            deliveryDelayMs
+          })
+        }
+
+        const scheduledDelivery = context.eventQueue.schedule<PacketDeliveryPayload>({
+          id: `${event.id}:delivery:${encodedPayload.frameMode}`,
+          type: RuntimeEventType.PACKET_DELIVERY,
+          scheduledAt: context.simulationTimeMs + deliveryDelayMs,
+          createdAt: context.simulationTimeMs,
+          priority: EventPriority.WIRELESS_DELIVERY,
+          source: { type: 'module', id: sourceModule.id },
+          target: targetDeviceId ? { deviceId: targetDeviceId } : undefined,
+          payload: {
+            packet,
+            targetAddress: payload.targetAddress,
+            ...(targetDeviceId ? { targetDeviceId } : {}),
+            sentAtSimulationMs: context.simulationTimeMs
+          },
+          meta: {
+            parentEventId: event.id,
+            correlationId: event.meta?.correlationId
+          }
+        })
+
+        scheduledEventIds.push(scheduledDelivery.id)
+        notes.push(`lora ping packet delivery scheduled: ${packet.packetId}`)
+      }
+
+      toMetricsCollector(context.metricsCollector)?.recordPacketSent?.({
+        packet,
+        simulationTimeMs: context.simulationTimeMs
+      })
+      context.logger?.debug?.('lora_ping_packet_transmit_requested', {
+        packetId: packet.packetId,
+        frameMode: encodedPayload.frameMode
+      })
+    }
+
+    return {
+      scheduledEventIds,
+      notes
     }
   }
 
@@ -357,6 +644,32 @@ export const GatewayPacketReceivedHandler: EventHandler =
       })
     }
 
+    if (isLoRaCodecEncodedPacketPayload(payload.packet.payload)) {
+      const report = new LoRaCodecReportService().decodeReceivedPayload(payload.packet.payload)
+
+      context.logger?.info?.('gateway.packet_received', {
+        gatewayDeviceId: payload.gatewayDeviceId,
+        packetId: payload.packet.packetId,
+        messageKind: report.messageKind,
+        frameMode: report.frameMode,
+        encodedBytesHex: report.encoded.encodedBytesHex,
+        decodedMessage:
+          report.messageKind === 'ping'
+            ? report.decoded.decodedPing
+            : report.decoded.decodedTelemetry,
+        reconstructedMessageId: report.decoded.reconstructedMessageId,
+        roundtrip: report.roundtrip.ok ? 'OK' : 'FAIL'
+      })
+
+      return {
+        notes: [
+          `gateway packet received: ${payload.packet.packetId}`,
+          `gateway decoded LoRa codec packet: ${payload.packet.packetId}`,
+          `${LORA_CODEC_REPORT_NOTE_PREFIX}${JSON.stringify(report)}`
+        ]
+      }
+    }
+
     context.logger?.info?.('gateway.packet_received', {
       gatewayDeviceId: payload.gatewayDeviceId,
       packetId: payload.packet.packetId,
@@ -433,8 +746,98 @@ function requireTelemetrySamplePayload(event: SimulationEvent): TelemetrySampleP
     ...(typeof payload.repeat === 'boolean' ? { repeat: payload.repeat } : {}),
     ...(typeof payload.sendDelayMs === 'number' ? { sendDelayMs: payload.sendDelayMs } : {}),
     ...(typeof payload.deliveryDelayMs === 'number' ? { deliveryDelayMs: payload.deliveryDelayMs } : {}),
-    ...(typeof payload.sequence === 'number' ? { sequence: payload.sequence } : {})
+    ...(typeof payload.sequence === 'number' ? { sequence: payload.sequence } : {}),
+    ...(typeof payload.measuredAtUnix === 'number' ? { measuredAtUnix: payload.measuredAtUnix } : {})
   }
+}
+
+function createEncodedLoRaPacket(input: {
+  sourceAddress: string
+  targetAddress: string
+  encodedPayload: LoRaEncodedPacketPayload
+  sourceModule: LoRaModule
+  simulationTimeMs: number
+}): LoRaPacket {
+  const config = input.sourceModule.getConfig()
+  const sourceMessage =
+    input.encodedPayload.kind === 'lora-symbol-codec-ping'
+      ? input.encodedPayload.sourcePing
+      : input.encodedPayload.sourceTelemetry
+
+  return {
+    packetId: `pkt_lora_${input.encodedPayload.kind === 'lora-symbol-codec-ping' ? 'ping' : 'telemetry'}_${sourceMessage.sequence}_${input.encodedPayload.frameMode}_${input.encodedPayload.kind === 'lora-symbol-codec-ping' ? input.encodedPayload.sourcePing.sentAtUnix : input.encodedPayload.sourceTelemetry.measuredAtUnix}`,
+    sourceAddress: input.sourceAddress,
+    targetAddress: input.targetAddress,
+    payload: input.encodedPayload,
+    radio: {
+      frequencyHz: config.radio.frequencyHz,
+      bandwidthHz: config.radio.bandwidthHz,
+      spreadingFactor: config.radio.spreadingFactor,
+      codingRate: config.radio.codingRate,
+      powerDbm: config.radio.txPowerDbm,
+      rangeMeters: config.radio.maxRangeMeters
+    },
+    meta: {
+      timestamp: input.simulationTimeMs,
+      requiresAck: false,
+      ttl: input.encodedPayload.frameMode === 'mesh' ? 8 : undefined,
+      retries: 0
+    }
+  }
+}
+
+function runtimeTelemetryToLoRaTelemetry(
+  telemetry: TelemetrySendPayload['telemetry'],
+  sourceNumericAddress: number
+): TelemetryPayloadV1 {
+  let sensorFlags = 0
+  const payload: TelemetryPayloadV1 = {
+    schemaVersion: 1,
+    messageId:
+      telemetry.message_id ||
+      `sim-${sourceNumericAddress}-${telemetry.sequence}-${Math.floor(telemetry.timestamp / 1000)}`,
+    sequence: telemetry.sequence,
+    measuredAtUnix: Math.max(0, Math.floor(telemetry.timestamp / 1000)),
+    sensorFlags
+  }
+
+  const airTemperature = telemetry.sensors.air_temperature
+  if (typeof airTemperature === 'number') {
+    sensorFlags |= TelemetrySensorFlags.AIR_TEMPERATURE
+    payload.airTempCentiC = Math.round(airTemperature * 100)
+  }
+
+  const airHumidity = telemetry.sensors.air_humidity
+  if (typeof airHumidity === 'number') {
+    sensorFlags |= TelemetrySensorFlags.AIR_HUMIDITY
+    payload.airHumidityCentiPct = Math.round(airHumidity * 100)
+  }
+
+  const soilTemperature = telemetry.sensors.soil_temperature
+  if (typeof soilTemperature === 'number') {
+    sensorFlags |= TelemetrySensorFlags.SOIL_TEMPERATURE
+    payload.soilTempCentiC = Math.round(soilTemperature * 100)
+  }
+
+  const soilMoisture = telemetry.sensors.soil_moisture
+  if (typeof soilMoisture === 'number') {
+    sensorFlags |= TelemetrySensorFlags.SOIL_MOISTURE
+    payload.soilMoistureCentiPct = Math.round(soilMoisture * 100)
+  }
+
+  const co2ppm = telemetry.sensors.co2
+  if (typeof co2ppm === 'number') {
+    sensorFlags |= TelemetrySensorFlags.CO2
+    payload.co2ppm = Math.round(co2ppm)
+  }
+
+  if (typeof telemetry.battery === 'number') {
+    sensorFlags |= TelemetrySensorFlags.BATTERY
+    payload.batteryPermille = Math.max(0, Math.min(1000, Math.round(telemetry.battery * 10)))
+  }
+
+  payload.sensorFlags = sensorFlags
+  return payload
 }
 
 function requireTelemetrySendPayload(event: SimulationEvent): TelemetrySendPayload {
@@ -468,6 +871,97 @@ function requireTelemetrySendPayload(event: SimulationEvent): TelemetrySendPaylo
     deviceId,
     targetAddress,
     telemetry,
+    ...(typeof payload.deliveryDelayMs === 'number' ? { deliveryDelayMs: payload.deliveryDelayMs } : {})
+  }
+}
+
+function requireLoRaCodecSendPayload(event: SimulationEvent): LoRaCodecSendPayload {
+  const payload = requireRecord(event.payload, event)
+  const deviceId = requireNonEmptyString(payload.deviceId, event, 'DEVICE_ID_REQUIRED', 'deviceId')
+  const targetAddress = requireNonEmptyString(
+    payload.targetAddress,
+    event,
+    'TARGET_ADDRESS_REQUIRED',
+    'targetAddress'
+  )
+  const mode = typeof payload.mode === 'string' ? payload.mode : 'both'
+
+  if (mode !== 'direct' && mode !== 'mesh' && mode !== 'both') {
+    fail('INVALID_EVENT_PAYLOAD', 'mode must be direct, mesh, or both', {
+      eventId: event.id,
+      mode
+    })
+  }
+
+  if (!isRecord(payload.telemetry)) {
+    fail('INVALID_EVENT_PAYLOAD', 'telemetry payload is required', { eventId: event.id })
+  }
+
+  const telemetry = payload.telemetry as LoRaCodecSendPayload['telemetry']
+
+  if (
+    telemetry.schemaVersion !== 1 ||
+    typeof telemetry.messageId !== 'string' ||
+    typeof telemetry.sequence !== 'number' ||
+    typeof telemetry.measuredAtUnix !== 'number'
+  ) {
+    fail('INVALID_EVENT_PAYLOAD', 'LoRa codec telemetry payload is invalid', {
+      eventId: event.id,
+      telemetry
+    })
+  }
+
+  return {
+    deviceId,
+    targetAddress,
+    telemetry,
+    mode,
+    ...(typeof payload.deliveryDelayMs === 'number' ? { deliveryDelayMs: payload.deliveryDelayMs } : {})
+  }
+}
+
+function requireLoRaPingSendPayload(event: SimulationEvent): LoRaPingSendPayload {
+  const payload = requireRecord(event.payload, event)
+  const deviceId = requireNonEmptyString(payload.deviceId, event, 'DEVICE_ID_REQUIRED', 'deviceId')
+  const targetAddress = requireNonEmptyString(
+    payload.targetAddress,
+    event,
+    'TARGET_ADDRESS_REQUIRED',
+    'targetAddress'
+  )
+
+  if (!isRecord(payload.ping)) {
+    fail('INVALID_EVENT_PAYLOAD', 'PING payload is required', { eventId: event.id })
+  }
+
+  const ping = payload.ping as LoRaPingSendPayload['ping']
+
+  if (
+    ping.schemaVersion !== 1 ||
+    typeof ping.messageId !== 'string' ||
+    typeof ping.sequence !== 'number' ||
+    typeof ping.sentAtUnix !== 'number'
+  ) {
+    fail('INVALID_EVENT_PAYLOAD', 'PING payload is invalid', {
+      eventId: event.id,
+      ping
+    })
+  }
+
+  const mode = typeof payload.mode === 'string' ? payload.mode : undefined
+
+  if (mode !== undefined && mode !== 'direct' && mode !== 'mesh') {
+    fail('INVALID_EVENT_PAYLOAD', 'PING mode must be direct or mesh', {
+      eventId: event.id,
+      mode
+    })
+  }
+
+  return {
+    deviceId,
+    targetAddress,
+    ping,
+    ...(mode ? { mode } : {}),
     ...(typeof payload.deliveryDelayMs === 'number' ? { deliveryDelayMs: payload.deliveryDelayMs } : {})
   }
 }

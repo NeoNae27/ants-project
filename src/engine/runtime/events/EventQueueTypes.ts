@@ -3,6 +3,8 @@ export type CoreSimulationEventType =
   | 'wireless.packet_lost'
   | 'device.telemetry_sample'
   | 'device.telemetry_send'
+  | 'device.lora_codec_send'
+  | 'device.lora_ping_send'
   | 'gateway.packet_received'
   | 'device.state_change'
   | 'device.sleep'

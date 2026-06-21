@@ -62,6 +62,7 @@ type WorkspaceViewProps = {
   onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
   onSendPingToGateway: (deviceId: string) => void
+  onSendTypicalLoRaMessage: (deviceId: string) => void
   onClearSelection: () => void
 }
 
@@ -167,6 +168,7 @@ export function WorkspaceView({
   onRemoveModule,
   onSelectDevice,
   onSendPingToGateway,
+  onSendTypicalLoRaMessage,
   onClearSelection
 }: WorkspaceViewProps): React.JSX.Element {
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -779,33 +781,57 @@ export function WorkspaceView({
             >
               {(() => {
                 const contextDevice = devicesById.get(deviceContextMenu.deviceId)
-                const canSendPing =
+                const canSendLoRaMessage =
                   Boolean(contextDevice && getDeviceLoRaModule(contextDevice)) &&
                   hasGatewayPingTarget(deviceContextMenu.deviceId)
 
                 return (
-                  <button
-                    className="device-context-menu-item"
-                    type="button"
-                    role="menuitem"
-                    disabled={!canSendPing}
-                    title={
-                      canSendPing
-                        ? 'Send PING message to Gateway'
-                        : 'LoRa source and Gateway target are required'
-                    }
-                    onClick={(event) => {
-                      event.stopPropagation()
-
-                      if (canSendPing) {
-                        onSendPingToGateway(deviceContextMenu.deviceId)
+                  <>
+                    <button
+                      className="device-context-menu-item"
+                      type="button"
+                      role="menuitem"
+                      disabled={!canSendLoRaMessage}
+                      title={
+                        canSendLoRaMessage
+                          ? 'Send PING message to Gateway'
+                          : 'LoRa source and Gateway target are required'
                       }
+                      onClick={(event) => {
+                        event.stopPropagation()
 
-                      setDeviceContextMenu(null)
-                    }}
-                  >
-                    Send PING to Gateway
-                  </button>
+                        if (canSendLoRaMessage) {
+                          onSendPingToGateway(deviceContextMenu.deviceId)
+                        }
+
+                        setDeviceContextMenu(null)
+                      }}
+                    >
+                      Send PING to Gateway
+                    </button>
+                    <button
+                      className="device-context-menu-item"
+                      type="button"
+                      role="menuitem"
+                      disabled={!canSendLoRaMessage}
+                      title={
+                        canSendLoRaMessage
+                          ? 'Encode and decode a typical LoRa telemetry message'
+                          : 'LoRa source and Gateway target are required'
+                      }
+                      onClick={(event) => {
+                        event.stopPropagation()
+
+                        if (canSendLoRaMessage) {
+                          onSendTypicalLoRaMessage(deviceContextMenu.deviceId)
+                        }
+
+                        setDeviceContextMenu(null)
+                      }}
+                    >
+                      send typical LoRa message
+                    </button>
+                  </>
                 )
               })()}
             </div>
