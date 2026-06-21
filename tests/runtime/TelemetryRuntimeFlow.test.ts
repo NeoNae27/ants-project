@@ -74,26 +74,34 @@ function createWorkspaceFixture(): {
     modules: [gatewayModule]
   })
 
-  workspace.addDevice(sensor, { x: 10, y: 10 }, {
-    endpoints: [
-      {
-        deviceId: 'sensor-001',
-        moduleId: sensorModule.id,
-        protocol: 'lora',
-        address: 'node-001'
-      }
-    ]
-  })
-  workspace.addDevice(gateway, { x: 20, y: 20 }, {
-    endpoints: [
-      {
-        deviceId: 'gateway-001',
-        moduleId: gatewayModule.id,
-        protocol: 'lora',
-        address: 'gateway-001'
-      }
-    ]
-  })
+  workspace.addDevice(
+    sensor,
+    { x: 10, y: 10 },
+    {
+      endpoints: [
+        {
+          deviceId: 'sensor-001',
+          moduleId: sensorModule.id,
+          protocol: 'lora',
+          address: 'node-001'
+        }
+      ]
+    }
+  )
+  workspace.addDevice(
+    gateway,
+    { x: 20, y: 20 },
+    {
+      endpoints: [
+        {
+          deviceId: 'gateway-001',
+          moduleId: gatewayModule.id,
+          protocol: 'lora',
+          address: 'gateway-001'
+        }
+      ]
+    }
+  )
 
   return { workspace, gatewayModule }
 }
@@ -171,6 +179,47 @@ describe('Telemetry runtime flow', () => {
     assert.equal(result.queue?.events[0]?.scheduledAt, 500)
     assert.equal(result.clock?.virtualTimeMs, 0)
     assert.equal(result.engine?.state.status, SimulationEngineStatus.IDLE)
+  })
+
+  it('send-ping-to-gateway command delivers a ping payload to the Gateway', () => {
+    const { workspace, gatewayModule } = createWorkspaceFixture()
+    const manager = new SimulationRuntimeSessionManager({
+      runtimeContextProvider: () => ({ workspace })
+    })
+
+    const scheduled = manager.dispatch({
+      type: 'simulation/send-ping-to-gateway',
+      deviceId: 'sensor-001',
+      targetAddress: 'gateway-001',
+      dueInMs: 1,
+      deliveryDelayMs: 1
+    })
+
+    assert.equal(scheduled.ok, true)
+    assert.deepEqual(scheduled.scheduledEventIds, ['scenario:ping:sensor-001:0:1'])
+    assert.equal(scheduled.queue?.size, 1)
+    assert.equal(scheduled.queue?.events[0]?.type, RuntimeEventType.TELEMETRY_SEND)
+    assert.equal(scheduled.queue?.events[0]?.scheduledAt, 1)
+
+    const sent = manager.dispatch({
+      type: 'simulation/advance-clock',
+      deltaRealMs: 1
+    })
+
+    assert.equal(sent.ok, true)
+    assert.equal(sent.queue?.events[0]?.type, RuntimeEventType.PACKET_DELIVERY)
+
+    const delivered = manager.dispatch({
+      type: 'simulation/advance-clock',
+      deltaRealMs: 100
+    })
+
+    assert.equal(delivered.ok, true)
+    assert.equal(gatewayModule.getInboundBuffer().length, 1)
+
+    const [packet] = gatewayModule.getInboundBuffer()
+    assert.equal(packet?.targetAddress, 'gateway-001')
+    assert.equal((packet?.payload as { sensors?: { ping?: number } }).sensors?.ping, 1)
   })
 
   it('schedule-basic-telemetry rejects invalid source devices', () => {

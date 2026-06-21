@@ -28,9 +28,12 @@ import type {
   SimulationCommand,
   SimulationCommandResult,
   SimulationRuntimeExecutionLogEntry,
-  SimulationScheduleBasicTelemetryCommand
+  SimulationScheduleBasicTelemetryCommand,
+  SimulationSendPingToGatewayCommand
 } from '../../../shared/simulationRuntime'
 
+const DEFAULT_PING_DUE_IN_MS = 0
+const DEFAULT_PING_DELIVERY_DELAY_MS = 100
 const DEFAULT_TELEMETRY_DUE_IN_MS = 1000
 const DEFAULT_TELEMETRY_SEND_DELAY_MS = 1
 const DEFAULT_TELEMETRY_DELIVERY_DELAY_MS = 100
@@ -51,6 +54,14 @@ type NormalizedTelemetryScheduleCommand = {
   repeat: boolean
   intervalMs?: number
   sendDelayMs: number
+  deliveryDelayMs: number
+}
+
+type NormalizedPingCommand = {
+  deviceId: string
+  targetAddress: string
+  targetDeviceId: string
+  dueInMs: number
   deliveryDelayMs: number
 }
 
@@ -101,6 +112,7 @@ export class SimulationRuntimeSessionManager {
   private readonly autoRun: boolean
   private readonly autoStepRealMs: number
   private autoStepTimer?: ReturnType<typeof setInterval>
+  private nextPingScenarioSequence = 1
   private nextTelemetryScenarioSequence = 1
   private nextExecutionSequence = 1
   private executionLog: SimulationRuntimeExecutionLogEntry[] = []
@@ -175,6 +187,8 @@ export class SimulationRuntimeSessionManager {
           return this.withSnapshot()
         case 'simulation/schedule-basic-telemetry':
           return this.scheduleBasicTelemetry(command)
+        case 'simulation/send-ping-to-gateway':
+          return this.sendPingToGateway(command)
         default:
           return {
             ok: false,
@@ -186,10 +200,16 @@ export class SimulationRuntimeSessionManager {
               code: 'SIMULATION_COMMAND_UNKNOWN',
               message: `Unknown simulation command: ${(command as { type?: string }).type}`
             }
-        }
+          }
       }
     } catch (error) {
-      return toErrorResult(error, this.clock, this.engine, this.eventQueue, this.wirelessMedium.getLinks())
+      return toErrorResult(
+        error,
+        this.clock,
+        this.engine,
+        this.eventQueue,
+        this.wirelessMedium.getLinks()
+      )
     }
   }
 
@@ -205,7 +225,13 @@ export class SimulationRuntimeSessionManager {
       this.clock.setSpeed(SimulationClockSpeedMultiplier.X1)
       return this.withEngine(this.engine.reset())
     } catch (error) {
-      return toErrorResult(error, this.clock, this.engine, this.eventQueue, this.wirelessMedium.getLinks())
+      return toErrorResult(
+        error,
+        this.clock,
+        this.engine,
+        this.eventQueue,
+        this.wirelessMedium.getLinks()
+      )
     }
   }
 
@@ -239,6 +265,62 @@ export class SimulationRuntimeSessionManager {
             }
           }
         : {})
+    }
+  }
+
+  private sendPingToGateway(command: SimulationSendPingToGatewayCommand): SimulationCommandResult {
+    const validation = this.validatePingCommand(command)
+
+    if (!validation.ok) {
+      return this.withError(validation.code, validation.message)
+    }
+
+    const normalized = validation.command
+    const nowMs = this.clock.getNowMs()
+    const sequence = this.nextPingScenarioSequence
+    this.nextPingScenarioSequence += 1
+
+    const scheduled = this.eventQueue.schedule({
+      id: `scenario:ping:${normalized.deviceId}:${nowMs}:${sequence}`,
+      type: RuntimeEventType.TELEMETRY_SEND,
+      scheduledAt: nowMs + normalized.dueInMs,
+      createdAt: nowMs,
+      priority: EventPriority.COMMAND,
+      source: { type: 'device', id: normalized.deviceId },
+      target: { deviceId: normalized.targetDeviceId },
+      payload: {
+        deviceId: normalized.deviceId,
+        targetAddress: normalized.targetAddress,
+        deliveryDelayMs: normalized.deliveryDelayMs,
+        telemetry: {
+          schema_version: '1.0',
+          message_id: `ping:${normalized.deviceId}:${nowMs}:${sequence}`,
+          sequence,
+          source: 'simulator',
+          device_id: normalized.deviceId,
+          timestamp: nowMs,
+          battery: 100,
+          sensors: {
+            ping: 1
+          },
+          link: {
+            hops: 0
+          }
+        }
+      },
+      meta: {
+        reason: 'ui.ping_gateway'
+      }
+    })
+
+    return {
+      ok: true,
+      clock: this.clock.getSnapshot(),
+      engine: this.engine.getSnapshot(),
+      queue: this.eventQueue.getSnapshot(),
+      executions: [...this.executionLog],
+      radioLinks: [...this.wirelessMedium.getLinks()],
+      scheduledEventIds: [scheduled.id]
     }
   }
 
@@ -288,7 +370,9 @@ export class SimulationRuntimeSessionManager {
     }
   }
 
-  private validateTelemetryScheduleCommand(command: SimulationScheduleBasicTelemetryCommand):
+  private validateTelemetryScheduleCommand(
+    command: SimulationScheduleBasicTelemetryCommand
+  ):
     | { ok: true; command: NormalizedTelemetryScheduleCommand }
     | { ok: false; code: string; message: string } {
     const deviceId = typeof command.deviceId === 'string' ? command.deviceId.trim() : ''
@@ -406,6 +490,111 @@ export class SimulationRuntimeSessionManager {
         repeat,
         ...(repeat ? { intervalMs: command.intervalMs } : {}),
         sendDelayMs,
+        deliveryDelayMs
+      }
+    }
+  }
+
+  private validatePingCommand(
+    command: SimulationSendPingToGatewayCommand
+  ): { ok: true; command: NormalizedPingCommand } | { ok: false; code: string; message: string } {
+    const deviceId = typeof command.deviceId === 'string' ? command.deviceId.trim() : ''
+    const targetAddress =
+      typeof command.targetAddress === 'string' ? command.targetAddress.trim() : ''
+    const dueInMs = command.dueInMs ?? DEFAULT_PING_DUE_IN_MS
+    const deliveryDelayMs = command.deliveryDelayMs ?? DEFAULT_PING_DELIVERY_DELAY_MS
+
+    if (!deviceId) {
+      return this.validationError('SIMULATION_PING_DEVICE_ID_REQUIRED', 'deviceId is required')
+    }
+
+    if (!targetAddress) {
+      return this.validationError(
+        'SIMULATION_PING_TARGET_ADDRESS_REQUIRED',
+        'targetAddress is required'
+      )
+    }
+
+    if (!Number.isFinite(dueInMs) || dueInMs < 0) {
+      return this.validationError(
+        'SIMULATION_PING_DUE_IN_INVALID',
+        'dueInMs must be greater than or equal to zero'
+      )
+    }
+
+    if (!Number.isFinite(deliveryDelayMs) || deliveryDelayMs <= 0) {
+      return this.validationError(
+        'SIMULATION_PING_DELIVERY_DELAY_INVALID',
+        'deliveryDelayMs must be greater than zero'
+      )
+    }
+
+    const runtimeContext = this.runtimeContextProvider?.() ?? {}
+    const sourceDevice = findRuntimeDeviceById(runtimeContext, deviceId)
+
+    if (!sourceDevice) {
+      return this.validationError(
+        'SIMULATION_PING_SOURCE_DEVICE_NOT_FOUND',
+        `Source device not found: ${deviceId}`
+      )
+    }
+
+    const sourceModule = findRuntimeLoRaModule(sourceDevice)
+
+    if (!sourceModule) {
+      return this.validationError(
+        'SIMULATION_PING_SOURCE_LORA_MODULE_NOT_FOUND',
+        `Source LoRa module not found: ${deviceId}`
+      )
+    }
+
+    if (!findRuntimeLoRaAddress(runtimeContext, deviceId, sourceModule.id)) {
+      return this.validationError(
+        'SIMULATION_PING_SOURCE_LORA_ADDRESS_NOT_FOUND',
+        `Source LoRa address not found: ${deviceId}`
+      )
+    }
+
+    const targetDevice = findRuntimeDeviceByAddress(runtimeContext, targetAddress)
+
+    if (!targetDevice) {
+      return this.validationError(
+        'SIMULATION_PING_TARGET_DEVICE_NOT_FOUND',
+        `Target device not found for LoRa address: ${targetAddress}`
+      )
+    }
+
+    if (!isRuntimeGatewayDevice(targetDevice)) {
+      return this.validationError(
+        'SIMULATION_PING_TARGET_NOT_GATEWAY',
+        `Target address does not belong to a Gateway device: ${targetAddress}`
+      )
+    }
+
+    const targetDeviceId = getRuntimeDeviceId(targetDevice)
+    const targetEndpoint = findRuntimeLoRaEndpoint(runtimeContext, targetDeviceId, targetAddress)
+
+    if (!targetEndpoint) {
+      return this.validationError(
+        'SIMULATION_PING_TARGET_LORA_ADDRESS_NOT_FOUND',
+        `Target LoRa endpoint not found: ${targetAddress}`
+      )
+    }
+
+    if (!isRuntimeLoRaModule(targetDevice.getModule(targetEndpoint.moduleId))) {
+      return this.validationError(
+        'SIMULATION_PING_TARGET_LORA_MODULE_NOT_FOUND',
+        `Target LoRa module not found: ${targetEndpoint.moduleId}`
+      )
+    }
+
+    return {
+      ok: true,
+      command: {
+        deviceId,
+        targetAddress,
+        targetDeviceId,
+        dueInMs,
         deliveryDelayMs
       }
     }
