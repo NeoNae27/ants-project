@@ -1,20 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react'
-import type { SimulationClockSnapshot } from '../../../shared/simulationRuntime'
+import type {
+  EventQueueSnapshot,
+  SimulationClockSnapshot
+} from '../../../shared/simulationRuntime'
+import gatewayIconUrl from '../assets/gateway-icon.svg'
+import sensorIconUrl from '../assets/sensor-icon.svg'
+import type { WorkspaceDevicePreset } from '../../../shared/workspaceSession'
 import { DeviceInspector } from './DeviceInspector'
 import { WorkspaceNavigator } from './WorkspaceNavigator'
 import type {
   AddDevicePlacement,
   WorkspaceConnectionViewMode,
   WorkspaceDevice,
+  WorkspaceDeviceRole,
   WorkspaceModule,
   WorkspacePossibleConnection,
   WorkspacePoint,
   WorkspaceProject,
+  WorkspaceRadioLink,
   WorkspaceSpatialGridVisibility
 } from './types'
 import {
   createWorkspaceConnectionLines,
-  filterConnectionsForMode
+  filterConnectionsForMode,
+  formatRadioLinkDebugLabel,
+  getRadioLinkStatusClassName
 } from './workspaceConnections'
 
 type WorkspaceViewProps = {
@@ -23,20 +33,24 @@ type WorkspaceViewProps = {
   selectedDeviceId: string | null
   selectedDevice: WorkspaceDevice | null
   possibleConnections: WorkspacePossibleConnection[]
+  radioLinks: WorkspaceRadioLink[]
   spatialGridVisibility: WorkspaceSpatialGridVisibility
   simulationClock: SimulationClockSnapshot | null
+  simulationQueue: EventQueueSnapshot | null
   addDeviceRequest: {
     id: number
     placement: AddDevicePlacement
+    preset?: WorkspaceDevicePreset
   }
   pasteDeviceRequest: {
     id: number
     placement: AddDevicePlacement
   }
-  onAddDeviceAt: (position: WorkspacePoint) => void
+  onAddDeviceAt: (position: WorkspacePoint, preset?: WorkspaceDevicePreset) => void
   onPasteDeviceAt: (position: WorkspacePoint) => void
   onMoveDevice: (deviceId: string, position: WorkspacePoint) => void
   onAddModule: (deviceId: string, module: WorkspaceModule) => void
+  onUpdateDeviceRole: (deviceId: string, role: WorkspaceDeviceRole) => void
   onUpdateModule: (deviceId: string, moduleId: string, module: WorkspaceModule) => void
   onRemoveModule: (deviceId: string, moduleId: string) => void
   onSelectDevice: (device: WorkspaceDevice) => void
@@ -73,6 +87,10 @@ const INITIAL_ZOOM = 2
 const MIN_ZOOM = 1
 const MAX_ZOOM = 12
 
+function getDeviceIconUrl(device: WorkspaceDevice): string {
+  return device.role === 'gateway' ? gatewayIconUrl : sensorIconUrl
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
@@ -106,14 +124,17 @@ export function WorkspaceView({
   selectedDeviceId,
   selectedDevice,
   possibleConnections,
+  radioLinks,
   spatialGridVisibility,
   simulationClock,
+  simulationQueue,
   addDeviceRequest,
   pasteDeviceRequest,
   onAddDeviceAt,
   onPasteDeviceAt,
   onMoveDevice,
   onAddModule,
+  onUpdateDeviceRole,
   onUpdateModule,
   onRemoveModule,
   onSelectDevice,
@@ -133,6 +154,8 @@ export function WorkspaceView({
   })
   const [connectionViewMode, setConnectionViewMode] =
     useState<WorkspaceConnectionViewMode>('selected')
+  const [showWirelessLinks, setShowWirelessLinks] = useState(true)
+  const [showLinkDebugInfo, setShowLinkDebugInfo] = useState(false)
 
   useEffect(() => {
     const viewport = viewportRef.current
@@ -281,21 +304,26 @@ export function WorkspaceView({
     handledAddDeviceRequestIdRef.current = addDeviceRequest.id
 
     if (!viewportSize.width || !viewportSize.height) {
-      onAddDeviceAt({
-        x: project.width / 2,
-        y: project.height / 2
-      })
+      onAddDeviceAt(
+        {
+          x: project.width / 2,
+          y: project.height / 2
+        },
+        addDeviceRequest.preset
+      )
       return
     }
 
     onAddDeviceAt(
       addDeviceRequest.placement === 'cursor' && cursorWorkspacePointRef.current
         ? cursorWorkspacePointRef.current
-        : getViewportCenterWorkspacePoint()
+        : getViewportCenterWorkspacePoint(),
+      addDeviceRequest.preset
     )
   }, [
     addDeviceRequest.id,
     addDeviceRequest.placement,
+    addDeviceRequest.preset,
     getViewportCenterWorkspacePoint,
     onAddDeviceAt,
     project.height,
@@ -490,9 +518,14 @@ export function WorkspaceView({
         <WorkspaceNavigator
           devices={devices}
           connections={possibleConnections}
+          radioLinks={radioLinks}
           selectedDeviceId={selectedDeviceId}
           viewMode={connectionViewMode}
+          showWirelessLinks={showWirelessLinks}
+          showLinkDebugInfo={showLinkDebugInfo}
           onViewModeChange={setConnectionViewMode}
+          onShowWirelessLinksChange={setShowWirelessLinks}
+          onShowLinkDebugInfoChange={setShowLinkDebugInfo}
           onSelectDevice={onSelectDevice}
         />
 
@@ -588,13 +621,60 @@ export function WorkspaceView({
                 </svg>
               ) : null}
 
+              {showWirelessLinks && radioLinks.length > 0 ? (
+                <svg
+                  className="workspace-radio-link-overlay"
+                  width={project.width}
+                  height={project.height}
+                  viewBox={`0 0 ${project.width} ${project.height}`}
+                  aria-hidden="true"
+                >
+                  {radioLinks.map((link) => {
+                    const sourceDevice = devicesById.get(link.sourceDeviceId)
+                    const targetDevice = devicesById.get(link.targetDeviceId)
+
+                    if (!sourceDevice || !targetDevice) {
+                      return null
+                    }
+
+                    const labelX = (sourceDevice.x + targetDevice.x) / 2
+                    const labelY = (sourceDevice.y + targetDevice.y) / 2
+                    const statusClassName = getRadioLinkStatusClassName(link.status)
+
+                    return (
+                      <g key={link.id}>
+                        <line
+                          className={`workspace-radio-link-line ${statusClassName}`}
+                          x1={sourceDevice.x}
+                          y1={sourceDevice.y}
+                          x2={targetDevice.x}
+                          y2={targetDevice.y}
+                        >
+                          <title>{formatRadioLinkDebugLabel(link)}</title>
+                        </line>
+                        {showLinkDebugInfo ? (
+                          <text
+                            className={`workspace-radio-link-label ${statusClassName}`}
+                            x={labelX}
+                            y={labelY - 8}
+                            textAnchor="middle"
+                          >
+                            {formatRadioLinkDebugLabel(link)}
+                          </text>
+                        ) : null}
+                      </g>
+                    )
+                  })}
+                </svg>
+              ) : null}
+
               {devices.map((device) => {
                 const isSelected = device.id === selectedDeviceId
 
                 return (
                   <button
                     key={device.id}
-                    className={`workspace-device${isSelected ? ' is-selected' : ''}`}
+                    className={`workspace-device workspace-device-${device.role}${isSelected ? ' is-selected' : ''}`}
                     type="button"
                     style={{
                       left: `${device.x}px`,
@@ -610,7 +690,14 @@ export function WorkspaceView({
                       event.stopPropagation()
                       onSelectDevice(device)
                     }}
-                  />
+                  >
+                    <img
+                      className="workspace-device-icon"
+                      src={getDeviceIconUrl(device)}
+                      alt=""
+                      draggable={false}
+                    />
+                  </button>
                 )
               })}
             </div>
@@ -619,7 +706,10 @@ export function WorkspaceView({
 
         <DeviceInspector
           device={selectedDevice}
+          simulationClock={simulationClock}
+          simulationQueue={simulationQueue}
           onAddModule={onAddModule}
+          onUpdateDeviceRole={onUpdateDeviceRole}
           onUpdateModule={onUpdateModule}
           onRemoveModule={onRemoveModule}
         />
@@ -632,6 +722,7 @@ export function WorkspaceView({
         <span className="status-item">Unit: 1 = {project.unitScaleMeters} m</span>
         <span className="status-item">Zoom: {zoomPercent}%</span>
         <span className="status-item">Links: {visibleConnections.length}</span>
+        <span className="status-item">Radio: {radioLinks.length}</span>
         <span className="status-item">
           Simulation: {simulationClock?.state ?? 'stopped'} {simulationTimeLabel} x{simulationClock?.speed ?? 1}
         </span>

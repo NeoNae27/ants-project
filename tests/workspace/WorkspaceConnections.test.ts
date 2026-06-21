@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import {
   createWorkspaceConnectionLines,
+  formatRadioLinkDebugLabel,
   filterConnectionsForMode,
-  findPossibleWorkspaceConnections
+  findPossibleWorkspaceConnections,
+  getRadioLinkStatusClassName
 } from '../../src/renderer/src/workspace/workspaceConnections'
 import type {
   WorkspaceDevice,
@@ -60,6 +62,7 @@ function createDevice(params: {
     },
     modules: params.modules ?? [],
     bufferSize: 0,
+    receivedPacketCount: 0,
     x: params.x,
     y: params.y
   }
@@ -144,5 +147,25 @@ describe('workspace connections', () => {
     assert.equal(lines.length, 1)
     assert.equal(lines[0].connectionCount, 2)
     assert.equal(lines[0].isSelected, true)
+  })
+
+  it('formats runtime radio link status and debug labels', () => {
+    const label = formatRadioLinkDebugLabel({
+      id: 'link-1',
+      sourceDeviceId: 'a',
+      targetDeviceId: 'b',
+      protocol: 'lora',
+      status: 'lost',
+      distanceMeters: 1200,
+      rssiDbm: -128.4,
+      linkMarginDb: -4.2,
+      reason: 'LINK_BUDGET_TOO_LOW',
+      updatedAt: 1000
+    })
+
+    assert.equal(getRadioLinkStatusClassName('invalid_config'), 'is-invalid-config')
+    assert.match(label, /1\.20 km/)
+    assert.match(label, /RSSI -128\.4 dBm/)
+    assert.match(label, /lost: LINK_BUDGET_TOO_LOW/)
   })
 })

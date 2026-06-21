@@ -148,6 +148,7 @@ export function createWorkspaceDevice(
     },
     modules: [],
     bufferSize: 0,
+    receivedPacketCount: 0,
     x: position.x,
     y: position.y
   }

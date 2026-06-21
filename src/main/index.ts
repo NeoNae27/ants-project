@@ -61,7 +61,21 @@ app.whenReady().then(() => {
 
   const mainWindow = createWindow()
   const workspaceSessionManager = new WorkspaceSessionManager()
-  const simulationRuntimeSessionManager = new SimulationRuntimeSessionManager()
+  const simulationRuntimeSessionManager = new SimulationRuntimeSessionManager({
+    autoRun: true,
+    runtimeContextProvider: () => workspaceSessionManager.getRuntimeContext(),
+    logger: {
+      info(message, details) {
+        console.info(`[runtime] ${message}`, details ?? {})
+      },
+      warn(message, details) {
+        console.warn(`[runtime] ${message}`, details ?? {})
+      },
+      error(message, details) {
+        console.error(`[runtime] ${message}`, details ?? {})
+      }
+    }
+  })
   registerWorkspaceIpc(workspaceSessionManager, simulationRuntimeSessionManager)
   registerSimulationIpc(simulationRuntimeSessionManager)
   createApplicationMenu(mainWindow)

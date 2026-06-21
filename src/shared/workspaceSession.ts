@@ -22,6 +22,13 @@ export type WorkspaceModulePatchDto = {
   config?: Record<string, unknown>
 }
 
+export type WorkspaceDevicePreset =
+  | 'generic-node'
+  | 'lora-sensor-node'
+  | 'lora-gateway'
+
+export type WorkspaceDeviceRole = 'node' | 'repeater' | 'gateway'
+
 export type CreateProjectCommand = {
   type: 'workspace/create-project'
   name: string
@@ -33,9 +40,10 @@ export type CreateProjectCommand = {
 export type AddDeviceCommand = {
   type: 'workspace/add-device'
   position: WorkspacePosition
+  preset?: WorkspaceDevicePreset
   name?: string
   model?: string
-  role?: 'node' | 'repeater' | 'gateway'
+  role?: WorkspaceDeviceRole
   modules?: WorkspaceModuleTemplateDto[]
   loraAddress?: string
 }
@@ -49,6 +57,12 @@ export type MoveDeviceCommand = {
 export type DeleteDeviceCommand = {
   type: 'workspace/delete-device'
   deviceId: string
+}
+
+export type UpdateDeviceRoleCommand = {
+  type: 'workspace/update-device-role'
+  deviceId: string
+  role: WorkspaceDeviceRole
 }
 
 export type AddModuleCommand = {
@@ -105,6 +119,7 @@ export type WorkspaceCommand =
   | AddDeviceCommand
   | MoveDeviceCommand
   | DeleteDeviceCommand
+  | UpdateDeviceRoleCommand
   | AddModuleCommand
   | UpdateModuleCommand
   | RemoveModuleCommand

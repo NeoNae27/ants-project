@@ -25,6 +25,13 @@ function getNumber(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
 }
 
+function getModuleReceivedPacketCount(module: DeviceModule): number {
+  const rawSnapshot = module.getSnapshot()
+  const snapshot = isRecord(rawSnapshot) ? rawSnapshot : {}
+
+  return getNumber(snapshot.receivedPacketCount, getNumber(snapshot.inboundBufferSize, 0))
+}
+
 function getCommunicationFromSnapshot(snapshot: Record<string, unknown>): WorkspaceCommunicationConfigDto | undefined {
   const config = isRecord(snapshot.config) ? snapshot.config : undefined
   const radio = config && isRecord(config.radio) ? config.radio : undefined
@@ -69,6 +76,9 @@ export function moduleToWorkspaceModuleSnapshot(module: DeviceModule): Workspace
 
 export function deviceToWorkspaceDeviceInfoDto(device: DeviceCore): WorkspaceDeviceInfoDto {
   const info = device.getInfo()
+  const receivedPacketCount = device
+    .getModules()
+    .reduce((total, module) => total + getModuleReceivedPacketCount(module), 0)
 
   return {
     id: info.id,
@@ -80,6 +90,7 @@ export function deviceToWorkspaceDeviceInfoDto(device: DeviceCore): WorkspaceDev
     executionState: info.executionState,
     moduleCount: info.moduleCount,
     bufferSize: info.bufferSize,
+    receivedPacketCount,
   }
 }
 

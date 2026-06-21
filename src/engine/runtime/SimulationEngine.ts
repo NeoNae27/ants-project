@@ -4,6 +4,7 @@ import type {
   EventDispatchResult,
   EventDispatcher,
   EventQueue,
+  RuntimeContextProvider,
   SimulationEvent
 } from './events'
 import {
@@ -34,6 +35,7 @@ export class SimulationEngine implements ISimulationEngine {
   private readonly wirelessMedium?: unknown
   private readonly metricsCollector?: unknown
   private readonly logger?: SimulationEngineDependencies['logger']
+  private readonly runtimeContextProvider?: RuntimeContextProvider
 
   private state: SimulationEngineState = {
     status: SimulationEngineStatus.IDLE,
@@ -51,6 +53,7 @@ export class SimulationEngine implements ISimulationEngine {
     this.wirelessMedium = dependencies.wirelessMedium
     this.metricsCollector = dependencies.metricsCollector
     this.logger = dependencies.logger
+    this.runtimeContextProvider = dependencies.runtimeContextProvider
   }
 
   getState(): SimulationEngineState {
@@ -343,7 +346,8 @@ export class SimulationEngine implements ISimulationEngine {
       registry: this.registry,
       wirelessMedium: this.wirelessMedium,
       metricsCollector: this.metricsCollector,
-      logger: this.logger
+      logger: this.logger,
+      ...(this.runtimeContextProvider?.() ?? {})
     }
   }
 

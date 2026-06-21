@@ -76,6 +76,7 @@ export type WorkspaceDeviceInfoDto = {
   executionState: DeviceExecutionState
   moduleCount: number
   bufferSize: number
+  receivedPacketCount: number
 }
 
 export type WorkspaceDeviceSnapshot = {

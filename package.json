@@ -22,6 +22,8 @@
     "test:event-dispatcher": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/EventDispatcher.test.js",
     "test:simulation-engine": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/SimulationEngine.test.js",
     "test:simulation-clock": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/SimulationClock.test.js",
+    "test:telemetry-runtime-flow": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/RuntimeEventHandlers.test.js build/tests/tests/runtime/TelemetryRuntimeFlow.test.js",
+    "test:gateway-packet-receive-flow": "tsc -p tsconfig.tests.json && node --test --test-reporter=spec build/tests/tests/runtime/GatewayPacketReceiveFlow.test.js",
     "test:types": "tsc -p tsconfig.type-tests.json",
     "start": "node scripts/electron-vite.cjs preview",
     "dev": "node scripts/electron-vite.cjs dev",

@@ -2,16 +2,22 @@ import { useState } from 'react'
 import type {
   WorkspaceConnectionViewMode,
   WorkspaceDevice,
-  WorkspacePossibleConnection
+  WorkspacePossibleConnection,
+  WorkspaceRadioLink
 } from './types'
 import { getDeviceLoRaModule } from './workspaceConnections'
 
 type WorkspaceNavigatorProps = {
   devices: readonly WorkspaceDevice[]
   connections: readonly WorkspacePossibleConnection[]
+  radioLinks: readonly WorkspaceRadioLink[]
   selectedDeviceId: string | null
   viewMode: WorkspaceConnectionViewMode
+  showWirelessLinks: boolean
+  showLinkDebugInfo: boolean
   onViewModeChange: (mode: WorkspaceConnectionViewMode) => void
+  onShowWirelessLinksChange: (visible: boolean) => void
+  onShowLinkDebugInfoChange: (visible: boolean) => void
   onSelectDevice: (device: WorkspaceDevice) => void
 }
 
@@ -28,9 +34,14 @@ function formatDistance(meters: number): string {
 export function WorkspaceNavigator({
   devices,
   connections,
+  radioLinks,
   selectedDeviceId,
   viewMode,
+  showWirelessLinks,
+  showLinkDebugInfo,
   onViewModeChange,
+  onShowWirelessLinksChange,
+  onShowLinkDebugInfoChange,
   onSelectDevice
 }: WorkspaceNavigatorProps): React.JSX.Element {
   const [collapsedSections, setCollapsedSections] = useState<Record<NavigatorSectionId, boolean>>({
@@ -127,6 +138,26 @@ export function WorkspaceNavigator({
                 All
               </button>
             </div>
+          </div>
+
+          <div className="navigator-link-controls">
+            <label className="navigator-checkbox">
+              <input
+                type="checkbox"
+                checked={showWirelessLinks}
+                onChange={(event) => onShowWirelessLinksChange(event.currentTarget.checked)}
+              />
+              <span>Wireless links</span>
+              <strong>{radioLinks.length}</strong>
+            </label>
+            <label className="navigator-checkbox">
+              <input
+                type="checkbox"
+                checked={showLinkDebugInfo}
+                onChange={(event) => onShowLinkDebugInfoChange(event.currentTarget.checked)}
+              />
+              <span>Debug labels</span>
+            </label>
           </div>
 
           {!collapsedSections.links ? (

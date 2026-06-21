@@ -23,6 +23,10 @@ export type DispatchContext = {
   logger?: DispatchLoggerPort
 }
 
+export type RuntimeContextProvider = () => Partial<
+  Omit<DispatchContext, 'simulationTimeMs' | 'eventQueue'>
+>
+
 export type EventDispatchHandlerResult = {
   scheduledEventIds?: string[]
   notes?: string[]

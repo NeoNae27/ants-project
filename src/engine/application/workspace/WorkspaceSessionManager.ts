@@ -47,6 +47,10 @@ export class WorkspaceSessionManager {
     return this.currentSession.dispatch({ type: 'workspace/get-snapshot' })
   }
 
+  getRuntimeContext(): ReturnType<WorkspaceSession['getRuntimeContext']> {
+    return this.currentSession?.getRuntimeContext() ?? {}
+  }
+
   hasSession(): boolean {
     return Boolean(this.currentSession)
   }

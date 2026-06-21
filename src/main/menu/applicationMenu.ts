@@ -1,7 +1,9 @@
 import { BrowserWindow, Menu, type KeyboardEvent, type MenuItemConstructorOptions } from 'electron'
+import type { WorkspaceDevicePreset } from '../../shared/workspaceSession'
 
 type AddDeviceCommand = {
   placement: 'center' | 'cursor'
+  preset?: WorkspaceDevicePreset
 }
 
 type PasteDeviceCommand = {
@@ -24,6 +26,7 @@ type SimulationMenuCommand =
   | { action: 'reset' }
   | { action: 'set-speed'; speed: 1 | 5 | 10 }
   | { action: 'advance-clock'; deltaRealMs: number }
+  | { action: 'schedule-basic-telemetry' }
   | { action: 'show-clock-snapshot' }
 
 const menuChannels = {
@@ -75,6 +78,22 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
 
             sendMenuCommand(mainWindow, menuChannels.addDevice, command)
           }
+        },
+        {
+          label: 'Add Sensor Node',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.addDevice, {
+              placement: 'center',
+              preset: 'lora-sensor-node'
+            } satisfies AddDeviceCommand)
+        },
+        {
+          label: 'Add Gateway',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.addDevice, {
+              placement: 'center',
+              preset: 'lora-gateway'
+            } satisfies AddDeviceCommand)
         }
       ]
     },
@@ -157,6 +176,13 @@ export function createApplicationMenu(mainWindow: BrowserWindow): void {
             sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
               action: 'advance-clock',
               deltaRealMs: 1000
+            } satisfies SimulationMenuCommand)
+        },
+        {
+          label: 'Schedule basic telemetry',
+          click: () =>
+            sendMenuCommand(mainWindow, menuChannels.simulationCommand, {
+              action: 'schedule-basic-telemetry'
             } satisfies SimulationMenuCommand)
         },
         {

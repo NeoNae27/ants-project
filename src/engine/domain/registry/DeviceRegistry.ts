@@ -110,6 +110,21 @@ export class DeviceRegistry {
     )
   }
 
+  updateDeviceRole(deviceId: DeviceId, nextRole: DeviceRole): void {
+    this.assertDeviceId(deviceId)
+
+    const device = this.getOrThrow(deviceId)
+    const previousRole = device.getRole()
+
+    if (previousRole === nextRole) {
+      return
+    }
+
+    device.changeRole(nextRole)
+    this.removeDeviceIdFromRoleIndex(previousRole, deviceId)
+    this.addDeviceIdToRoleIndex(nextRole, deviceId)
+  }
+
   registerModule(deviceId: DeviceId, module: DeviceModule): void {
     this.assertDeviceId(deviceId)
     this.assertModuleId(module.id)
@@ -359,17 +374,21 @@ export class DeviceRegistry {
   }
 
   private addToRoleIndex(device: DeviceCore): void {
-    const role = device.getRole()
-    const deviceId = this.getDeviceId(device)
+    this.addDeviceIdToRoleIndex(device.getRole(), this.getDeviceId(device))
+  }
+
+  private removeFromRoleIndex(device: DeviceCore): void {
+    this.removeDeviceIdFromRoleIndex(device.getRole(), this.getDeviceId(device))
+  }
+
+  private addDeviceIdToRoleIndex(role: DeviceRole, deviceId: DeviceId): void {
     const roleDevices = this.devicesByRole.get(role) ?? new Set<DeviceId>()
 
     roleDevices.add(deviceId)
     this.devicesByRole.set(role, roleDevices)
   }
 
-  private removeFromRoleIndex(device: DeviceCore): void {
-    const role = device.getRole()
-    const deviceId = this.getDeviceId(device)
+  private removeDeviceIdFromRoleIndex(role: DeviceRole, deviceId: DeviceId): void {
     const roleDevices = this.devicesByRole.get(role)
 
     if (!roleDevices) {

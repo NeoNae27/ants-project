@@ -46,6 +46,7 @@ export class LoRaModule implements DeviceModule {
    * Сюда будут попадать пакеты, которые доставил WirelessMedium.
    */
   private readonly inboundBuffer: LoRaPacket[] = []
+  private receivedPacketCount = 0
 
   /**
    * Буфер исходящих сообщений.
@@ -342,6 +343,7 @@ export class LoRaModule implements DeviceModule {
     }
 
     this.inboundBuffer.push(packet)
+    this.receivedPacketCount += 1
   }
 
   /**
@@ -403,6 +405,7 @@ export class LoRaModule implements DeviceModule {
       config: this.config,
       inboundBufferSize: this.inboundBuffer.length,
       outboundBufferSize: this.outboundBuffer.length,
+      receivedPacketCount: this.receivedPacketCount,
     }
   }
 
